@@ -4,7 +4,7 @@
 
 ![实车参考图：CarPlay 导航第二屏显示在 Audi Virtual Cockpit 仪表盘 / Vehicle reference: CarPlay secondary display on the Audi Virtual Cockpit](docs/images/carplay-altscreen-vehicle-demo.jpg)
 
-*实车参考图片：展示 CarPlay 第二屏在仪表盘上的效果；当前仓库的 V2.1 更新尚未完成实车验证。 / Vehicle reference: CarPlay secondary display on the instrument cluster; the current V2.1 update has not yet been tested in a vehicle.*
+*实车参考图片：CarPlay 第二屏显示在 Virtual Cockpit 仪表盘上。 / Vehicle reference: CarPlay secondary display on the Virtual Cockpit instrument cluster.*
 
 ## 中文
 
@@ -12,15 +12,14 @@
 
 ### 当前状态
 
-- 2026-09-19：V2 显示链路已在实车上点亮仪表，画面能随手机导航更新。
-- 仓库根目录中的 SD 卡文件标注为 AUG22 / V2.1（2026-09-25）；这次更新尚未完成上车验证。V2 的实车结果不能视为 V2.1 的验证结果。
+- 仓库根目录的 AUG22 / V2.1 文件已经完成实车验证，可在 Virtual Cockpit 仪表盘显示 CarPlay 第二屏，画面能随手机导航更新。
 - 仅面向安装脚本能够核验的 AUG22 固件；其他固件不应强制安装。
 
 ### 安装与测试
 
 #### 1. 准备 SD 卡
 
-1. 先在车机信息页确认固件版本。此包面向安装脚本能够核验的 **AUG22** 固件；若版本不符、无法确认，或车机拒绝更新包，就停止操作，不要强制刷入。当前根目录是 **AUG22 / V2.1** 文件，尚未完成上车验证；2026-09-19 的实车结果属于 V2。
+1. 先在车机信息页确认固件版本。此包面向安装脚本能够核验的 **AUG22** 固件；若版本不符、无法确认，或车机拒绝更新包，就停止操作，不要强制刷入。当前根目录提供已完成实车验证的 **AUG22 / V2.1** 文件。
 2. 车辆停稳，保持稳定供电。备份正在使用的 SD 卡及原车文件，并准备一张可正常读写的 **FAT32** SD 卡。
 3. 下载仓库 ZIP 并解压，**将仓库根目录的内容直接复制到 SD 卡根目录**，不要再套一层仓库名或“SD卡”文件夹。卡根目录应直接看到 `metainfo2.txt`、`Toolbox`、`SD_CARD_README.txt`、`SHA256SUMS-SD.txt`。`README.md`、根目录 `LICENSE` 和 `.gitattributes` 不参与车机安装，可不复制。
 4. 如果旧卡已有 `MMI-Cockpit-Carplay` 目录，换卡时把该目录完整复制到新卡；它含有原车备份及诊断资料。以后执行恢复时要插入**含原车备份**的卡，不能只用一张新复制的空白卡。
@@ -72,15 +71,14 @@ This project completes the **CarPlay AltScreen (secondary display)** logic for v
 
 ### Status
 
-- 2026-09-19: the V2 display path lit the Virtual Cockpit in a vehicle test and updated with phone navigation.
-- The SD card files at the repository root are labeled AUG22 / V2.1 (2026-09-25). This update has **not** been tested in a vehicle. The V2 result does not validate V2.1.
+- The AUG22 / V2.1 files at the repository root have been verified in a vehicle. The CarPlay secondary display appears on the Virtual Cockpit and updates with phone navigation.
 - Use only on AUG22 firmware accepted by the installer's checks. Do not force installation on other firmware.
 
 ### Installation and testing
 
 #### 1. Prepare the SD card
 
-1. Check the firmware version on the head unit first. This package is for **AUG22** firmware that the installer can verify. Stop if the version is different, uncertain, or the head unit rejects the update package; do not force installation. The repository root contains **AUG22 / V2.1** files, which have not yet been tested in a vehicle. The 2026-09-19 vehicle result applies to V2.
+1. Check the firmware version on the head unit first. This package is for **AUG22** firmware that the installer can verify. Stop if the version is different, uncertain, or the head unit rejects the update package; do not force installation. The repository root contains vehicle-verified **AUG22 / V2.1** files.
 2. Park the vehicle and maintain stable power. Back up the SD card in use and the stock files. Prepare a working, writable **FAT32** SD card.
 3. Download and extract the repository ZIP. **Copy the contents of the repository root directly to the SD card root**; do not add an enclosing repository-name or “SD卡” folder. The card root should directly contain `metainfo2.txt`, `Toolbox`, `SD_CARD_README.txt`, and `SHA256SUMS-SD.txt`. `README.md`, the root `LICENSE`, and `.gitattributes` are not needed for installation and may be omitted.
 4. If the old card has an `MMI-Cockpit-Carplay` directory, copy that entire directory to the replacement card. It contains stock backups and diagnostic material. A later restore requires the **card with the stock backup**, not a newly copied blank card.

@@ -1,25 +1,75 @@
-# MHI2Q CarPlay AltScreen / MHI2Q CarPlay 第二屏
+# MIB2 Toolbox — CarPlay AltScreen V2.1
 
-[中文](#中文) · [English](#english)
+[English](README_EN.md) | **简体中文**
 
-![实车参考图：CarPlay 导航第二屏显示在 Audi Virtual Cockpit 仪表盘 / Vehicle reference: CarPlay secondary display on the Audi Virtual Cockpit](docs/images/carplay-altscreen-vehicle-demo.jpg)
+本项目面向 Audi **MHI2Q** 平台，用于将 **CarPlay 原生 AltScreen / 第二屏导航画面**直接显示至车辆的 **Virtual Cockpit**。当前仓库提供经过实车验证的安装包与使用说明；具体兼容性以安装脚本的固件核验结果为准。操作前请先阅读 [SD 卡说明](SD_CARD_README.txt)。
 
-*实车参考图片：CarPlay 第二屏显示在 Virtual Cockpit 仪表盘上。 / Vehicle reference: CarPlay secondary display on the Virtual Cockpit instrument cluster.*
+> [!NOTE]
+> **姊妹项目：MMI Mirror**  
+> 如果你希望显示的是 **MMI 中控完整画面镜像**，而不是 CarPlay 原生第二屏，请前往：  
+> **[MHI2Q-CarPlay-MMI-Mirror](https://github.com/Lanye-z/MHI2Q-CarPlay-MMI-Mirror)**
 
-## 中文
+> [!WARNING]
+> **⚠️ 写在前面**
+>
+> 当前仓库提供的是经过实车验证的 **先行公开版本**。完整开发版本已经包含更多功能，但考虑到此前免费测试成果曾被未经允许包装和倒卖，我们不会在第一次公开时一次性发布全部功能。
+>
+> 后续会在完成整理、稳定性验证和兼容性确认后，逐步将成熟功能更新到公开版本。
+>
+> 当前版本并非演示代码，现有 CarPlay AltScreen 第二屏功能已经可以正常实车使用。
+>
+> 本项目最初就是基于我们自己的车辆和日常使用需求进行开发，当前开发与测试范围以 **MHI2Q / 中国区（CN）固件**为主。我们目前**不会针对 MHI2 平台，也不会针对 US / ER 等其他地区固件主动开展适配**。如果你的车辆不在当前已验证范围内，请不要默认其具备兼容性，也不要绕过安装脚本的检查强制安装。
+>
+> **免费分享，禁止倒卖。**
+>
+> 可以学习、研究和交流，但请不要把免费的测试与开发成果重新包装后用于牟利。
 
-本项目面向搭载 **Audi MHI2Q / MIB2 High AUG22 固件**的车辆，补全 **CarPlay AltScreen（CarPlay 第二屏）**的处理逻辑，使 CarPlay 的导航第二屏画面能够直接显示在车辆的 **Virtual Cockpit 仪表盘**上。本仓库提供可放入 SD 卡根目录的安装文件；具体兼容性以安装脚本的固件核验结果为准。操作前请先阅读 [SD 卡说明](SD_CARD_README.txt)。
+> [!IMPORTANT]
+> 本项目会修改车机系统文件。安装、启动或恢复过程中请保持 SD 卡连接和车机供电稳定。  
+> **安装或恢复完成后，请按照页面中的步骤完整重启车机 / HMI，再判断结果。**
+>
+> 请勿在驾驶过程中进行安装、更新、恢复或故障处理。
 
-### 当前状态
+---
 
-- 仓库根目录的 AUG22 / V2.1 文件已经完成实车验证，可在 Virtual Cockpit 仪表盘显示 CarPlay 第二屏，画面能随手机导航更新。
-- 仅面向安装脚本能够核验的 AUG22 固件；其他固件不应强制安装。
+## 实车效果
+
+<img width="1920" height="1080" alt="CarPlay AltScreen on Virtual Cockpit" src="https://github.com/user-attachments/assets/f582d179-8c8e-41ac-882b-24d623813fca" />
+
+---
+
+## 当前公开版本已支持
+
+- CarPlay 原生 AltScreen
+- CarPlay 主屏正常使用，不受第二屏影响
+- STATUS 状态诊断
+- 安全安装与恢复
+- 安装 / 恢复中断保护
+- 原车配置恢复
+- 日志与 SD 卡备份
+- 当前 **中国区 AUG22 固件**已完成实车验证
+
+## 暂未包含在当前公开版本
+
+- 方向盘滚轮控制 CarPlay 地图缩放
+- 更完整的 RGI 导航信息联动
+- Classic / Sport 动态布局适配
+
+上述功能会根据稳定性、兼容性和整理进度，逐步更新到后续公开版本。**MHI2 平台以及 US / ER 等其他地区固件的适配目前不在本项目计划内。**
+
+### 未来将引入：
+
+https://github.com/user-attachments/assets/b6506445-d6a5-4765-9d4f-db64be53ae44
+
+https://github.com/user-attachments/assets/53cfcd21-63ea-4e7b-a1f7-68f02353de05
+
+---
 
 ### 安装与测试
 
 #### 1. 准备 SD 卡
 
-1. 先在车机信息页确认固件版本。此包面向安装脚本能够核验的 **AUG22** 固件；若版本不符、无法确认，或车机拒绝更新包，就停止操作，不要强制刷入。当前根目录提供已完成实车验证的 **AUG22 / V2.1** 文件。
+1. 先在车机信息页确认固件版本。此包面向安装脚本能够核验的 **AUG22** 固件；若版本不符、无法确认，或车机拒绝更新包，就停止操作，不要强制刷入。当前根目录提供已完成实车验证的 **AUG22** 文件。
 2. 车辆停稳，保持稳定供电。备份正在使用的 SD 卡及原车文件，并准备一张可正常读写的 **FAT32** SD 卡。
 3. 下载仓库 ZIP 并解压，**将仓库根目录的内容直接复制到 SD 卡根目录**，不要再套一层仓库名或“SD卡”文件夹。卡根目录应直接看到 `metainfo2.txt`、`Toolbox`、`SD_CARD_README.txt`、`SHA256SUMS-SD.txt`。`README.md`、根目录 `LICENSE` 和 `.gitattributes` 不参与车机安装，可不复制。
 4. 如果旧卡已有 `MMI-Cockpit-Carplay` 目录，换卡时把该目录完整复制到新卡；它含有原车备份及诊断资料。以后执行恢复时要插入**含原车备份**的卡，不能只用一张新复制的空白卡。
@@ -65,61 +115,24 @@
 - [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi)：MHI2Q 的 CarPlay 导航引导、HMI 与仪表交互参考。
 - [MIB2 High Toolbox](https://github.com/jilleb/mib2-toolbox)：SD 卡工具链、工程菜单及脚本的上游项目。
 
-## English
+---
 
-This project completes the **CarPlay AltScreen (secondary display)** logic for vehicles with **Audi MHI2Q / MIB2 High AUG22 firmware**, allowing the CarPlay navigation secondary display to appear directly on the vehicle's **Virtual Cockpit instrument cluster**. The repository provides installation files for the root of an SD card; actual compatibility is determined by the installer's firmware checks. Read the [SD card instructions](SD_CARD_README.txt) before changing the head unit.
+# 版本状态
 
-### Status
+当前推荐版本：
 
-- The AUG22 / V2.1 files at the repository root have been verified in a vehicle. The CarPlay secondary display appears on the Virtual Cockpit and updates with phone navigation.
-- Use only on AUG22 firmware accepted by the installer's checks. Do not force installation on other firmware.
+~~~text
+main
+└── AUG22 / V2.1
+    └── 中国区实车验证完成
+~~~
 
-### Installation and testing
+当前公开版本以稳定、可安装、可恢复为优先目标；后续功能将分阶段更新。
 
-#### 1. Prepare the SD card
+---
 
-1. Check the firmware version on the head unit first. This package is for **AUG22** firmware that the installer can verify. Stop if the version is different, uncertain, or the head unit rejects the update package; do not force installation. The repository root contains vehicle-verified **AUG22 / V2.1** files.
-2. Park the vehicle and maintain stable power. Back up the SD card in use and the stock files. Prepare a working, writable **FAT32** SD card.
-3. Download and extract the repository ZIP. **Copy the contents of the repository root directly to the SD card root**; do not add an enclosing repository-name or “SD卡” folder. The card root should directly contain `metainfo2.txt`, `Toolbox`, `SD_CARD_README.txt`, and `SHA256SUMS-SD.txt`. `README.md`, the root `LICENSE`, and `.gitattributes` are not needed for installation and may be omitted.
-4. If the old card has an `MMI-Cockpit-Carplay` directory, copy that entire directory to the replacement card. It contains stock backups and diagnostic material. A later restore requires the **card with the stock backup**, not a newly copied blank card.
-5. After copying, run `sha256sum -c SHA256SUMS-SD.txt` from the card root using Git Bash, Linux, or another environment with `sha256sum`; confirm that listed files report `OK`. The manifest covers 38 selected runtime files, not every repository file.
+# 开源说明
 
-#### 2. Install or update MIB Toolbox
+本项目当前公开的是可安装运行包与相关说明，并不代表完整开发版本的全部功能已经一次性公开。
 
-1. **MIB Toolbox already installed:** insert this card and run `Update Toolbox` from the Toolbox menu to refresh the engineering menu and scripts. Confirm that the `MMI-Cockpit-Carplay` menu appears.
-2. **No MIB Toolbox installed:** use the head unit's **software update** entry to select the package on this card (with `metainfo2.txt` at the card root). Install the supplied menu and scripts, then open the Toolbox engineering menu and confirm `MMI-Cockpit-Carplay` appears. Entry names can vary by head unit; follow the labels shown on yours.
-3. If software update cannot read the card or rejects the package, check FAT32 formatting and the root layout. If it still rejects the package, stop; do not bypass the head unit's or installer's compatibility checks.
-
-#### 3. Install and start the secondary display
-
-In the `MMI-Cockpit-Carplay` menu, follow this order and let each action finish before continuing:
-
-1. **Disconnect the iPhone / CarPlay** so navigation video is not playing during installation.
-2. Select `INSTALL`. Wait until it finishes. After `INSTALL=PASS` and `reboot_required=YES`, **fully reboot the head unit**. If it reports `FAIL`, record the message and stop.
-3. After the reboot, select `START`. Wait for `START=PASS` and `reboot_required=YES`, then **fully reboot the head unit again**. If it fails, do not proceed straight to connecting the phone.
-4. After the second reboot, connect the iPhone, enter CarPlay, and start navigation. Check whether the Virtual Cockpit shows the secondary display and updates with navigation. Once valid secondary-display video arrives, the startup logo appears for about two seconds; it is not the vehicle boot logo.
-
-#### 4. Check status and troubleshoot
-
-- With CarPlay navigation running, open `STATUS`. `PHYSICAL_ROUTE_READY=SOFTWARE_CHAIN_COMPLETE` means the script observed the decoder, display path, Context 80, and other software conditions; you must still **visually confirm the image on the Virtual Cockpit**. `PHYSICAL_ROUTE_READY=NO` means some conditions are missing; inspect the fields it prints.
-- If the menu is missing, check that `Update Toolbox` or software update completed. If the card is not detected, check FAT32, the root layout, and whether it is writable. If `STATUS` is not ready, confirm that CarPlay is connected and navigation is producing output, then save the status and logs; do not repeatedly force `START`.
-- `STORE LOGS + RESTORE` tries to collect diagnostics and **then immediately restores the stock configuration**. It is not a logs-only action. Do not select it if you intend to keep the secondary display running.
-
-#### 5. Restore the stock configuration
-
-1. Insert the SD card that retains the `MMI-Cockpit-Carplay` stock-backup directory. Select `RESTORE ORIGINAL` in the menu, or `STORE LOGS + RESTORE` if you want to collect logs before restoring.
-2. Wait for `RESTORE=PASS` and `reboot_required=YES`, then fully reboot the head unit. Restore removes this project's HMI JAR and restores the related stock configuration.
-3. If installation or restore was interrupted, runtime remains disabled. Keep the original backup card, run `RESTORE ORIGINAL` again, confirm that it succeeds, and only then consider running `INSTALL` again. Do not continue with `START` while restore is incomplete.
-
-See the [SD card instructions](SD_CARD_README.txt) for additional runtime notes. Changing head unit system files can cause a blank screen or require recovery.
-### Licensing, authors, and third-party files
-
-This project is developed by [yuedizhibo](https://github.com/yuedizhibo) and [Lanye-z](https://github.com/Lanye-z). The repository-root [PolyForm Noncommercial 1.0.0 license](LICENSE) applies only to original material that the relevant rights holders can license under those terms. It permits noncommercial use, modification, and distribution; commercial use requires separate permission from the relevant rights holders. Because commercial use is restricted, this is **source-available noncommercial software**, not OSI-defined open source.
-
-Third-party files retain their existing licenses. Preserve the upstream MIB2 Toolbox [MIT license](LICENSE.TOOLBOX-MIT) and the mirror runtime's [separate license](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR), and follow each license when using or redistributing those files.
-
-Research and implementation references:
-
-- [LIVI](https://github.com/f-io/LIVI): reference for CarPlay main and instrument-cluster secondary-display protocol behavior.
-- [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi): reference for CarPlay route guidance, HMI integration, and cockpit interaction on MHI2Q.
-- [MIB2 High Toolbox](https://github.com/jilleb/mib2-toolbox): upstream SD card tooling, engineering menu, and scripts.
+> **免费分享，禁止倒卖。**

@@ -1,1 +1,4 @@
-SD卡/** -text
+* -text
+README.md text eol=lf
+LICENSE text eol=lf
+.gitattributes text eol=lf

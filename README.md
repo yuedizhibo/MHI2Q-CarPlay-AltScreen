@@ -2,9 +2,13 @@
 
 [中文](#中文) · [English](#english)
 
+![实车参考图：CarPlay 导航第二屏显示在 Audi Virtual Cockpit 仪表盘 / Vehicle reference: CarPlay secondary display on the Audi Virtual Cockpit](docs/images/carplay-altscreen-vehicle-demo.jpg)
+
+*实车参考图片：展示 CarPlay 第二屏在仪表盘上的效果；当前仓库的 V2.1 更新尚未完成实车验证。 / Vehicle reference: CarPlay secondary display on the instrument cluster; the current V2.1 update has not yet been tested in a vehicle.*
+
 ## 中文
 
-本仓库提供 Audi MHI2Q / MIB2 High 的 CarPlay 第二屏 SD 卡文件。它尝试把 CarPlay 的独立视频流显示到 Virtual Cockpit。请先阅读 [SD 卡说明](SD_CARD_README.txt)，再进行车机操作。
+本项目面向搭载 **Audi MHI2Q / MIB2 High AUG22 固件**的车辆，补全 **CarPlay AltScreen（CarPlay 第二屏）**的处理逻辑，使 CarPlay 的导航第二屏画面能够直接显示在车辆的 **Virtual Cockpit 仪表盘**上。本仓库提供可放入 SD 卡根目录的安装文件；具体兼容性以安装脚本的固件核验结果为准。操作前请先阅读 [SD 卡说明](SD_CARD_README.txt)。
 
 ### 当前状态
 
@@ -61,9 +65,10 @@
 - [LIVI](https://github.com/f-io/LIVI)：CarPlay 主屏与仪表第二屏协议行为的研究参考。
 - [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi)：MHI2Q 的 CarPlay 导航引导、HMI 与仪表交互参考。
 - [MIB2 High Toolbox](https://github.com/jilleb/mib2-toolbox)：SD 卡工具链、工程菜单及脚本的上游项目。
+
 ## English
 
-This repository provides SD card files for a CarPlay secondary display on Audi MHI2Q / MIB2 High. The project attempts to show a separate CarPlay video stream on the Virtual Cockpit. Read the [SD card instructions](SD_CARD_README.txt) before changing the head unit.
+This project completes the **CarPlay AltScreen (secondary display)** logic for vehicles with **Audi MHI2Q / MIB2 High AUG22 firmware**, allowing the CarPlay navigation secondary display to appear directly on the vehicle's **Virtual Cockpit instrument cluster**. The repository provides installation files for the root of an SD card; actual compatibility is determined by the installer's firmware checks. Read the [SD card instructions](SD_CARD_README.txt) before changing the head unit.
 
 ### Status
 

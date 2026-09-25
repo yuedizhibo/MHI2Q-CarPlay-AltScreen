@@ -24,10 +24,15 @@
 
 ### 许可与第三方文件
 
-仓库根目录的 [PolyForm Noncommercial 1.0.0 许可](LICENSE)仅适用于 `yuedizhibo` 有权授权的原创部分：允许非商业使用、修改和分发，商业使用须另行取得相应权利人的许可。该限制使本项目属于**源码可见的非商业许可**，不属于 OSI 定义的开源许可。
+本项目由 [yuedizhibo](https://github.com/yuedizhibo) 和 [Lanye-z](https://github.com/Lanye-z) 共同开发。仓库根目录的 [PolyForm Noncommercial 1.0.0 许可](LICENSE)仅适用于相应权利人有权按该许可发布的原创部分：允许非商业使用、修改和分发；商业使用须另行取得相关权利人的许可。由于限制商用，本项目属于**源码可见的非商业许可**，不属于 OSI 定义的开源许可。
 
-仓库中还包含第三方文件，其原有授权不因仓库根目录的许可而改变。例如，上游 Toolbox 附带 [MIT 许可](LICENSE.TOOLBOX-MIT)，镜像运行组件附带[独立许可](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR)。使用或再分发这些文件时，应分别遵守其原许可并保留版权声明。
+仓库中包含第三方文件，其原有授权不因仓库根目录的许可而改变。上游 MIB2 Toolbox 的 [MIT 许可](LICENSE.TOOLBOX-MIT)和镜像运行组件的[独立许可](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR)均须保留；使用或再分发时应分别遵守其条款。
 
+研究与实现参考项目：
+
+- [LIVI](https://github.com/f-io/LIVI)：CarPlay 主屏与仪表第二屏协议行为的研究参考。
+- [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi)：MHI2Q 的 CarPlay 导航引导、HMI 与仪表交互参考。
+- [MIB2 High Toolbox](https://github.com/jilleb/mib2-toolbox)：SD 卡工具链、工程菜单及脚本的上游项目。
 ## English
 
 This repository provides SD card files for a CarPlay secondary display on Audi MHI2Q / MIB2 High. The project attempts to show a separate CarPlay video stream on the Virtual Cockpit. Read the [SD card instructions](SD_CARD_README.txt) before changing the head unit.
@@ -48,8 +53,14 @@ This repository provides SD card files for a CarPlay secondary display on Audi M
 
 Changing head unit system files can cause a blank screen or require recovery. Work with the vehicle parked, stable power, and a saved stock backup. Before vehicle use, run `sha256sum -c SHA256SUMS-SD.txt` from the SD card root. The manifest covers 38 selected runtime files, not every file in the repository.
 
-### Licensing and third-party files
+### Licensing, authors, and third-party files
 
-The repository-root [PolyForm Noncommercial 1.0.0 license](LICENSE) applies only to original material that `yuedizhibo` has the right to license. It permits noncommercial use, modification, and distribution; commercial use requires separate permission from the relevant rights holders. Because it restricts commercial use, this is **source-available noncommercial software**, not OSI-defined open source.
+This project is developed by [yuedizhibo](https://github.com/yuedizhibo) and [Lanye-z](https://github.com/Lanye-z). The repository-root [PolyForm Noncommercial 1.0.0 license](LICENSE) applies only to original material that the relevant rights holders can license under those terms. It permits noncommercial use, modification, and distribution; commercial use requires separate permission from the relevant rights holders. Because commercial use is restricted, this is **source-available noncommercial software**, not OSI-defined open source.
 
-The repository also contains third-party material whose existing rights remain unchanged. For example, the upstream Toolbox includes an [MIT license](LICENSE.TOOLBOX-MIT), and the mirror runtime includes a [separate license](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR). Follow those terms and preserve their notices when using or redistributing those files.
+Third-party files retain their existing licenses. Preserve the upstream MIB2 Toolbox [MIT license](LICENSE.TOOLBOX-MIT) and the mirror runtime's [separate license](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR), and follow each license when using or redistributing those files.
+
+Research and implementation references:
+
+- [LIVI](https://github.com/f-io/LIVI): reference for CarPlay main and instrument-cluster secondary-display protocol behavior.
+- [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi): reference for CarPlay route guidance, HMI integration, and cockpit interaction on MHI2Q.
+- [MIB2 High Toolbox](https://github.com/jilleb/mib2-toolbox): upstream SD card tooling, engineering menu, and scripts.

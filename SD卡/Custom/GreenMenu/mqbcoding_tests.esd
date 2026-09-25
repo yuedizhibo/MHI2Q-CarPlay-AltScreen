@@ -1,0 +1,24 @@
+####################################################################
+screen Experimental Pro
+####################################################################
+screen  Testreadings Experimental
+
+####################################################################
+screen  Testsettings Experimental    
+    
+slider
+    value       per 0x01c500e6 187
+	label       "TI_Traffic_radius"
+	limits		absolute 0 1000
+    poll        1000
+    
+choice
+	value per 0x01c500e6 143
+	label "show multiple car positions in map screen"
+	poll 1000 
+    
+    
+choice   
+    value per 0x01be00df 220
+    label "nav_overwrite_enable_online_features"
+    poll 1000 

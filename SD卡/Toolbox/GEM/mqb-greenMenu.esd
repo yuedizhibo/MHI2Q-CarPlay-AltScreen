@@ -1,0 +1,37 @@
+###########################################################################################
+#
+# Custom Green Engineering Menu screen
+# Author:       Jille & Olli
+# Version:      4.1A
+# Disclaimer:   THIS SCREEN WILL VOID YOUR WARRANTY
+#
+###########################################################################################
+#
+# Main -> MQBCoding -> Customization -> GreenMenu
+#
+###########################################################################################
+screen   GreenMenu Customization
+
+keyValue
+    value	String sys 0x00000000 0
+    label   "Instructions: Put new .esd files into the Custom/GreenMenu folder on your"
+    poll    0    
+
+keyValue
+    value   String sys 0x00000000 0
+    label   "SD-card. Custom scripts go into Custom/GreenMenu/scripts. Make sure to point"
+    poll    0    
+
+keyValue
+    value   String sys 0x00000000 0
+    label   "scripts in your ESD-files to /eso/hmi/engdefs/scripts/mqb/"
+    poll    0   
+
+keyValue
+    value   String sys 0x00000000 0
+    label   ""
+    poll    0   
+
+script
+   value    sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/install_esd.sh"
+   label    "Install GreenMenu screens and scripts from Custom/GreenMenu" 

@@ -2,9 +2,7 @@
 
 [English](README_EN.md) | **简体中文**
 
-本项目面向 Audi **MHI2Q** 平台，用于将 **CarPlay 原生 AltScreen / 第二屏导航画面**直接显示至车辆的 **Virtual Cockpit**。核心显示链路已完成实车验证；本次将开屏 Logo 缩小至原大小的 80% 并居中，运行时改用姊妹项目原始的“免费开源，禁止倒卖”动态水印。新版已在 QNX 环境编译并通过文件校验。具体兼容性以安装脚本的固件核验结果为准。操作前请先阅读 [SD 卡说明](SD_CARD_README.txt)。
-
-开屏 Logo 与运行时动态水印均已内嵌在运行二进制中，上车覆盖包不再附带独立图像文件。
+本项目面向 Audi **MHI2Q** 平台，用于将 **CarPlay 原生 AltScreen / 第二屏导航画面**直接显示至车辆的 **Virtual Cockpit**。核心显示链路已完成实车验证。操作前请先阅读 [SD 卡说明](SD_CARD_README.txt)。
 
 > [!NOTE]
 > **姊妹项目：MMI Mirror**  

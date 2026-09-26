@@ -88,7 +88,7 @@ https://github.com/user-attachments/assets/53cfcd21-63ea-4e7b-a1f7-68f02353de05
 ### 2. Merge this project overlay into the upstream Toolbox SD card
 
 1. Keep the **complete upstream MIB2 Toolbox SD-card contents**. Do not delete its `metainfo2.txt`, `Toolbox/final/`, `Toolbox/GEM/mqb-main.esd`, `Toolbox/scripts/update_toolbox.sh`, or other upstream files.
-2. Download and extract this repository. Merge this repository's **`Toolbox/` directory into the existing `Toolbox/` directory on the SD card**:
+2. Download and extract this repository. These are compiled vehicle overlay files; **you do not need to copy source code or build directories**. Merge this repository's **`Toolbox/` directory into the existing `Toolbox/` directory on the SD card**:
    - Replace same-name files with this project's versions.
    - Keep all upstream-only files.
    - When upgrading from an older project build, delete the old `logo.rgba` and `watermark.rgba` from `Toolbox/carplay_alt_screen/mirror_display/release/` on the card; the new binary does not use them.
@@ -169,7 +169,7 @@ See the [SD card instructions](SD_CARD_README.txt) for additional runtime notes.
 
 ### Licensing, authors, and third-party files
 
-This project is developed by [yuedizhibo](https://github.com/yuedizhibo) and [Lanye-z](https://github.com/Lanye-z). The repository-root [PolyForm Noncommercial 1.0.0 license](LICENSE) applies only to original material that the relevant rights holders are entitled to publish under those terms: non-commercial use, modification, and redistribution are permitted, while commercial use requires separate permission from the relevant rights holders. Because commercial use is restricted, this project is **source-available under a non-commercial license**, not open source under the OSI definition.
+This project is developed by [yuedizhibo](https://github.com/yuedizhibo) and [Lanye-z](https://github.com/Lanye-z). The repository-root [PolyForm Noncommercial 1.0.0 license](LICENSE) applies only to original material that the relevant rights holders are entitled to publish under those terms: non-commercial use, modification, and redistribution are permitted, while commercial use requires separate permission from the relevant rights holders. This repository provides runtime binaries, installation scripts, and documentation; it does not publish the C/C++ source used to build the QNX binary. Because commercial use is restricted, the license is not open source under the OSI definition.
 
 The runtime watermark pixels come from [Lanye-z’s MMI Mirror project](https://github.com/Lanye-z/MHI2Q-CarPlay-MMI-Mirror), retaining the original 196×32 dimensions and approximately 60% maximum opacity. Third-party files retain their existing licenses. Preserve the upstream MIB2 Toolbox [MIT license](LICENSE.TOOLBOX-MIT) and the mirror runtime's [separate license](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR).
 

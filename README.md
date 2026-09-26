@@ -88,7 +88,7 @@ https://github.com/user-attachments/assets/53cfcd21-63ea-4e7b-a1f7-68f02353de05
 #### 2. 将本项目覆盖包合并到上游 Toolbox
 
 1. 在电脑上保留**上游完整 MIB2 Toolbox SD 卡内容**，不要删除其 `metainfo2.txt`、`Toolbox/final/`、`Toolbox/GEM/mqb-main.esd`、`Toolbox/scripts/update_toolbox.sh` 或其他上游文件。
-2. 下载本仓库 ZIP 并解压。将本仓库的 **`Toolbox/` 目录合并到 SD 卡根目录已有的 `Toolbox/` 目录**：
+2. 下载本仓库 ZIP 并解压。这里使用的是已编译的上车覆盖文件，**不需要复制源码或编译目录**。将本仓库的 **`Toolbox/` 目录合并到 SD 卡根目录已有的 `Toolbox/` 目录**：
    - 同名文件：使用本项目版本覆盖；
    - 上游独有文件：全部保留；
    - 从本项目旧版更新时，删除卡上 `Toolbox/carplay_alt_screen/mirror_display/release/` 内旧版的 `logo.rgba` 和 `watermark.rgba`；新版不再使用它们；
@@ -169,7 +169,7 @@ Script not found:
 
 ### 许可与第三方文件
 
-本项目由 [yuedizhibo](https://github.com/yuedizhibo) 和 [Lanye-z](https://github.com/Lanye-z) 共同开发。仓库根目录的 [PolyForm Noncommercial 1.0.0 许可](LICENSE)仅适用于相应权利人有权按该许可发布的原创部分：允许非商业使用、修改和分发；商业使用须另行取得相关权利人的许可。由于限制商用，本项目属于**源码可见的非商业许可**，不属于 OSI 定义的开源许可。
+本项目由 [yuedizhibo](https://github.com/yuedizhibo) 和 [Lanye-z](https://github.com/Lanye-z) 共同开发。仓库根目录的 [PolyForm Noncommercial 1.0.0 许可](LICENSE)仅适用于相应权利人有权按该许可发布的原创部分：允许非商业使用、修改和分发；商业使用须另行取得相关权利人的许可。本仓库提供运行二进制、安装脚本和说明，未提供构建该 QNX 二进制的 C/C++ 源码；由于限制商用，该许可不属于 OSI 定义的开源许可。
 
 运行时水印像素取自 [Lanye-z 的 MMI Mirror 项目](https://github.com/Lanye-z/MHI2Q-CarPlay-MMI-Mirror)，保留原始 196×32 尺寸和最高约 60% 的不透明度。仓库中包含第三方文件，其原有授权不因仓库根目录的许可而改变。上游 MIB2 Toolbox 的 [MIT 许可](LICENSE.TOOLBOX-MIT)和镜像运行组件的[独立许可](Toolbox/carplay_alt_screen/mirror_display/release/LICENSE.MMI-MIRROR)均须保留；使用或再分发时应分别遵守其条款。
 
@@ -195,7 +195,7 @@ main
 
 ---
 
-# 开源说明
+# 公开发布说明
 
 本项目当前公开的是可安装运行包与相关说明，并不代表完整开发版本的全部功能已经一次性公开。
 

@@ -1,0 +1,33 @@
+###########################################################################################
+# MMI-Cockpit-Carplay - CarPlay private111 Direct Display V2
+###########################################################################################
+screen "MMI-Cockpit-Carplay" Customization
+
+keyValue
+    value   String sys 0x00000000 0
+    label   "Direct flow: type111 -> stock OMX -> decoded SHM -> GLES displayable3 -> Java Context80"
+    poll    0
+
+script
+   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/install_mmi_cockpit_carplay_rx.sh"
+   label   "INSTALL"
+
+script
+   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/start_mmi_cockpit_carplay_rx_test.sh"
+   label   "START"
+
+script
+   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/status_mmi_cockpit_carplay_test.sh"
+   label   "STATUS"
+
+script
+   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/finish_mmi_cockpit_carplay_test.sh"
+   label   "STORE LOGS + RESTORE"
+
+script
+   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/stop_mmi_cockpit_carplay_test.sh"
+   label   "RESTORE ORIGINAL"
+
+script
+   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/force_start_mmi_cockpit_carplay_rx_test.sh"
+   label   "START (alias)"

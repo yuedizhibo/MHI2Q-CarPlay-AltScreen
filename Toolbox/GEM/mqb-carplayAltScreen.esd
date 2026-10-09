@@ -1,11 +1,11 @@
 ###########################################################################################
-# MMI-Cockpit-Carplay V3.5 - CarPlay Private111 Direct Display / Context80
+# MMI-Cockpit-Carplay V3.7Fix1 - CarPlay Private111 Direct Display / Context80
 ###########################################################################################
 screen "MMI-Cockpit-Carplay" Customization
 
 keyValue
     value   String sys 0x00000000 0
-    label   "Version: V3.5 - cold-start + dynamic ViewArea"
+    label   "Version: V3.7Fix1 - one-step install, one reboot"
     poll    0
 
 keyValue
@@ -27,10 +27,6 @@ script
    label   "INSTALL WITH RGI"
 
 script
-   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/start_mmi_cockpit_carplay_rx_test.sh"
-   label   "START"
-
-script
    value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/status_mmi_cockpit_carplay_test.sh"
    label   "STATUS"
 
@@ -41,7 +37,3 @@ script
 script
    value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/stop_mmi_cockpit_carplay_test.sh"
    label   "RESTORE ORIGINAL"
-
-script
-   value   sys 1 0x0100 "/eso/hmi/engdefs/scripts/mqb/force_start_mmi_cockpit_carplay_rx_test.sh"
-   label   "START (alias)"

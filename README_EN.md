@@ -210,7 +210,7 @@ Build output goes to `dev-build/` or `mirror_display/build/` (not tracked in git
 > - **This project itself cannot be installed directly through the red software-update menu.**
 > - After the upstream Toolbox is working, load this project through **`MQBCoding → Update Toolbox`** in the green menu.
 > - If `Update Toolbox` reports `Script not found` or `/eso/hmi/engdefs/scripts/mqb/update_toolbox.sh` is missing, repair/reinstall the upstream Toolbox first.
-> - **When upgrading from an older version of this project, you must restore first and then install.** Follow section 8; do not run `INSTALL` directly over an older version.
+> - **Upgrading from an older version no longer needs a manual restore**: the installer removes the old version automatically before installing. See section 8.
 
 ### 1. Confirm that the upstream MIB2 Toolbox works
 
@@ -277,18 +277,28 @@ Script not found:
 
 the **upstream Toolbox base installation is still broken**. Do not continue with this project's `INSTALL`; return to section 1 and repair the upstream Toolbox first.
 
-### 4. Install and start the secondary display
+### 4. Install the secondary display
 
-In the `MMI-Cockpit-Carplay` menu, follow this order and let each action finish before continuing:
+Installing and enabling are now one step, so **only one reboot is needed**:
 
 1. **Disconnect the iPhone / CarPlay** so navigation video is not playing during installation.
-2. Select one install mode and wait until it finishes. After `INSTALL=PASS` and `reboot_required=YES`, **fully reboot the head unit**. If it reports `FAIL`, record the message and stop.
+2. In the `MMI-Cockpit-Carplay` menu, select one install mode:
    - `INSTALL WITH RGI` (recommended): secondary-display map + full RGI (maneuver arrows, lane guidance, lower info bar).
    - `INSTALL NO RGI`: secondary-display map only, without the RGI components; useful if you only want the map or are troubleshooting RGI.
+3. Wait for the final `RESULT:` line. Do not remove the card, cut power, or reboot before it appears. The installer runs five steps and shows each one live:
 
-   `START` keeps the mode chosen at install time, and `STATUS` shows it as `INSTALL_RGI_MODE=WITH / NO`. To switch modes, it is safest to run `RESTORE ORIGINAL` first, then install again with the other mode. Below, `INSTALL` refers to either install entry.
-3. After reboot, select `START`. Wait for `START=PASS` and `reboot_required=YES`, then **fully reboot the head unit again**. If it fails, do not skip ahead to connecting the phone.
-4. After the second reboot, connect the iPhone, enter CarPlay, and start navigation. Check whether the Virtual Cockpit shows the secondary display and updates with navigation.
+   ```text
+   [1/5] Checking package and firmware...
+   [2/5] Checking for a previous installation...   (removes an old version automatically)
+   [3/5] Installing AltScreen + RGI...            (rolls back on any error)
+   [4/5] Enabling autostart...
+   [5/5] Verifying installation...
+   ```
+
+4. After `RESULT: SUCCESS`, **fully reboot the head unit once**, then connect the iPhone, enter CarPlay, start navigation, and check that the Virtual Cockpit shows the secondary display and updates with navigation.
+5. If it shows `RESULT: FAILED`, the lines below it say which step failed, what state the head unit is in now (unchanged / rolled back / restored to stock), and what to do next. The full run is in the SD-card log shown after `Log:`.
+
+`STATUS` shows the current mode as `INSTALL_RGI_MODE=WITH / NO`. To switch modes, simply run INSTALL again with the other mode; the installer removes the current version first.
 
 > [!NOTE]
 > Packages published on GitHub Releases show a startup watermark when the secondary display starts. This is expected. It is not the vehicle boot logo.
@@ -299,7 +309,7 @@ In the `MMI-Cockpit-Carplay` menu, follow this order and let each action finish 
 - If the `MMI-Cockpit-Carplay` menu is missing, first confirm that the upstream green menu works, the SD-card directory layout is correct, and `MQBCoding → Update Toolbox` completed successfully.
 - If `Update Toolbox` itself reports `Script not found`, that is an upstream Toolbox base-installation problem rather than an AltScreen installer problem. Repair the upstream Toolbox through the red software-update menu first.
 - If Baidu Maps does not appear on the cluster or Amap (Gaode) shows the wrong aspect ratio, first make sure the iPhone runs iOS 18 or later (iOS 26 recommended).
-- If the SD card is not detected, check FAT32, root layout, and read/write status. If `STATUS` is not ready, confirm that CarPlay is connected and navigation is producing video, then record the status and logs; do not repeatedly force `START`.
+- If the SD card is not detected, check FAT32, root layout, and read/write status. If `STATUS` is not ready, confirm that CarPlay is connected and navigation is producing video, then record the status and logs; do not reinstall repeatedly.
 - `STORE LOGS + RESTORE` tries to collect diagnostics and **then immediately restores the stock configuration**. It is not a logs-only action. If you want to keep the AltScreen runtime installed and active, do not select it.
 
 ### 6. Logs
@@ -312,17 +322,19 @@ In the `MMI-Cockpit-Carplay` menu, follow this order and let each action finish 
 ### 7. Restore the stock configuration
 
 1. Insert the SD card that retains the `MMI-Cockpit-Carplay` stock-backup directory. Select `RESTORE ORIGINAL`, or `STORE LOGS + RESTORE` if you want to collect logs before restoring.
-2. Wait for `RESTORE=PASS` and `reboot_required=YES`, then fully reboot the head unit. Restore stops the display process, releases the Context80 display demand, removes the startup entries, removes this project's HMI JAR, and restores the HMI files and preload configuration saved before installation.
-3. If installation or restore was interrupted, runtime operation remains disabled. Keep the original backup card, run `RESTORE ORIGINAL` again, confirm that restoration succeeds, and only then consider running `INSTALL` again. Do not run `START` while restoration is incomplete.
+2. Wait for the final `RESULT:` line. `RESULT: SUCCESS` means the stock configuration is back; then fully reboot the head unit. Restore stops the display process, releases the Context80 display demand, removes the startup entries, removes this project's HMI JAR, and restores the HMI files and preload configuration saved before installation.
+3. If it shows `RESULT: FAILED`, follow the lines below it; if they say the rollback was incomplete, **do not reboot** and run `RESTORE ORIGINAL` again. A head unit that is already stock shows `RESULT: NOTHING TO RESTORE`.
 
 ### 8. Upgrade from an older version
 
-Upgrading requires **restoring first, then installing**. Do not run `INSTALL` directly over an older version that is still active:
+Upgrading **no longer needs a manual restore**:
 
-1. Disconnect the iPhone / CarPlay and insert the SD card that retains the `MMI-Cockpit-Carplay` stock-backup directory.
-2. In the existing `MMI-Cockpit-Carplay` menu on the head unit, run `RESTORE ORIGINAL`. Wait for `RESTORE=PASS` and `reboot_required=YES`, then fully reboot the head unit. If the restore fails, stop the upgrade, keep the backup card, and record the message.
-3. After a successful restore, merge the new overlay into the SD card as described in section 2, and delete the leftover `logo.rgba` and `watermark.rgba` from the old version. Keep the `MMI-Cockpit-Carplay` directory on the card intact.
-4. Run `Update Toolbox` as described in section 3, then follow section 4: `INSTALL WITH RGI` or `INSTALL NO RGI` → full reboot → `START` → full reboot.
+1. Disconnect the iPhone / CarPlay and insert the SD card that retains the `MMI-Cockpit-Carplay` stock-backup directory (the card used for the original install).
+2. Merge the new overlay into that SD card as described in section 2, and delete the leftover `logo.rgba` and `watermark.rgba` from the old version. Keep the `MMI-Cockpit-Carplay` directory on the card intact.
+3. Run `Update Toolbox` as described in section 3, then run `INSTALL WITH RGI` or `INSTALL NO RGI` as described in section 4. When the installer finds an old version, it first runs a full, verified restore, then installs the new version.
+4. After `RESULT: SUCCESS`, fully reboot the head unit once.
+
+If the card holds no stock backup (for example, after switching SD cards), the installer stops at step 2 with a message and does not change the head unit.
 
 Changing head-unit system files can cause a blank screen or require recovery.
 
@@ -372,6 +384,14 @@ main
 The current public release prioritizes stable installation, normal use, and reliable recovery.
 
 ### Changelog
+
+**Install flow improvements (in development, pending vehicle validation)**
+
+- `INSTALL WITH RGI` / `INSTALL NO RGI` now install and enable in one step, so only one reboot is needed; `START` was removed from the menu.
+- An old version is detected and removed automatically (full, verified restore) before installing; switching install modes no longer needs a manual restore.
+- Install, restore, and `STORE LOGS + RESTORE` progress is shown live instead of all at once at the end.
+- The screen shows short English steps and errors only, with full detail in the SD-card log, and always ends with a `RESULT: SUCCESS / FAILED` block that states the head unit's current state and the next step.
+- If enabling autostart or the final check fails, the stock configuration is restored automatically.
 
 **V3.7Fix1**
 

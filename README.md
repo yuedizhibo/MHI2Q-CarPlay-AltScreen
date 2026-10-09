@@ -210,7 +210,7 @@ bash Tools/build_rgi_qnx.sh    # RGI hook + 渲染器 → libcarplay_rgi_meta.so
 > - **本项目本身不能直接通过红色菜单安装。**
 > - 本项目应在上游 Toolbox 已正常安装后，通过绿色菜单里的 **`MQBCoding → Update Toolbox`** 写入菜单和脚本。
 > - 如果绿色菜单里的 `Update Toolbox` 提示 `Script not found` 或缺少 `/eso/hmi/engdefs/scripts/mqb/update_toolbox.sh`，先重新安装 / 修复上游 Toolbox，再继续本项目。
-> - **从本项目旧版本升级时，必须先复原再安装**，请直接按第 8 节操作，不要在旧版上直接覆盖执行 `INSTALL`。
+> - **从本项目旧版本升级时无需手动复原**：安装程序会先自动卸载旧版，再安装新版，详见第 8 节。
 
 ### 1. 先确认上游 MIB2 Toolbox 是否正常
 
@@ -277,18 +277,28 @@ Script not found:
 
 说明车机上的**上游 Toolbox 基础安装本身仍未修复**。不要继续执行本项目的 `INSTALL`，应返回第 1 节重新修复上游 Toolbox。
 
-### 4. 安装第二屏并启动
+### 4. 安装第二屏
 
-在 `MMI-Cockpit-Carplay` 菜单中按以下顺序操作，每步完成后再进行下一步：
+安装和启用已经合并为一步，**全程只需重启一次**：
 
 1. **断开 iPhone / CarPlay**，避免安装过程中正在输出导航视频。
-2. 选择一种安装模式，等待执行结束；看到 `INSTALL=PASS` 且提示 `reboot_required=YES` 后，**完整重启车机**。若出现 `FAIL`，先记录提示并停止后续步骤。
+2. 在 `MMI-Cockpit-Carplay` 菜单中选择一种安装模式：
    - `INSTALL WITH RGI`（推荐）：第二屏地图 + 完整 RGI（转向箭头、车道引导、底部信息栏）。
    - `INSTALL NO RGI`：只显示第二屏地图，不启用 RGI 相关组件；适合只需要地图或排查 RGI 问题时使用。
+3. 等待屏幕最后出现 `RESULT:` 结论，期间不要拔卡、断电或重启。安装程序会依次执行 5 步，每一步都会实时显示进度：
 
-   `START` 会沿用安装时选择的模式，`STATUS` 中的 `INSTALL_RGI_MODE=WITH / NO` 显示当前模式。要切换模式，建议先执行 `RESTORE ORIGINAL`，再用另一种模式重新安装。下文提到的 `INSTALL` 均指这两个安装项之一。
-3. 重启完成后选择 `START`。等待 `START=PASS` 和 `reboot_required=YES`，然后**再次完整重启车机**。若失败，不要直接跳到连接手机。
-4. 第二次重启后连接 iPhone、进入 CarPlay 并启动导航。观察 Virtual Cockpit 是否出现第二屏画面且能随导航更新。
+   ```text
+   [1/5] Checking package and firmware...      检查安装包和固件版本
+   [2/5] Checking for a previous installation... 检测旧版本，有则先自动卸载
+   [3/5] Installing AltScreen + RGI...          安装（出错自动回滚）
+   [4/5] Enabling autostart...                  写入开机自启
+   [5/5] Verifying installation...              最终校验
+   ```
+
+4. 看到 `RESULT: SUCCESS` 后，**完整重启车机一次**，然后连接 iPhone、进入 CarPlay 并启动导航，观察 Virtual Cockpit 是否出现第二屏画面且能随导航更新。
+5. 如果显示 `RESULT: FAILED`，结论下方会写明失败在哪一步、车机当前处于什么状态（未改动 / 已回滚 / 已恢复原车）以及下一步该怎么做，按提示操作即可。完整过程记录在 `Log:` 所示的 SD 卡日志中。
+
+`STATUS` 中的 `INSTALL_RGI_MODE=WITH / NO` 显示当前安装模式。要切换模式，直接用另一种模式重新执行 INSTALL 即可，安装程序会先自动卸载当前版本。
 
 > [!NOTE]
 > GitHub Releases 中发布的安装包会在第二屏启动时显示开屏水印，属于正常现象。它不是整车开机 Logo。
@@ -299,7 +309,7 @@ Script not found:
 - 若完全看不到 `MMI-Cockpit-Carplay` 菜单，先确认上游绿菜单正常、SD 卡目录层级正确，并确认 `MQBCoding → Update Toolbox` 已成功执行。
 - 若 `Update Toolbox` 本身报 `Script not found`，这是上游 Toolbox 基础安装问题，不是本项目第二屏安装脚本的问题；先用上游完整包通过红色软件更新菜单修复 Toolbox。
 - 若百度地图在仪表上不显示，或高德地图画面比例异常，先确认 iPhone 系统为 iOS 18 或更高版本（推荐 iOS 26）。
-- 若 SD 卡找不到，核对 FAT32、卡根目录文件和读写状态。若 `STATUS` 不就绪，确认已连接 CarPlay 且导航正在输出，再记录状态及日志；不要反复强制执行 `START`。
+- 若 SD 卡找不到，核对 FAT32、卡根目录文件和读写状态。若 `STATUS` 不就绪，确认已连接 CarPlay 且导航正在输出，再记录状态及日志；不要反复重新安装。
 - `STORE LOGS + RESTORE` 会尽力保存诊断日志，**随后立即恢复原车配置**；它不是只导出日志的按钮。需要保留第二屏运行时，不要选择它。
 
 ### 6. 日志
@@ -312,17 +322,19 @@ Script not found:
 ### 7. 恢复原车
 
 1. 插入保留了 `MMI-Cockpit-Carplay` 原车备份目录的 SD 卡，在菜单选择 `RESTORE ORIGINAL`；若要先收集日志再恢复，选择 `STORE LOGS + RESTORE`。
-2. 等待 `RESTORE=PASS` 和 `reboot_required=YES`，然后完整重启车机。恢复会停止显示进程、释放 Context80 显示需求、移除启动项、删除本项目的 HMI JAR，并还原安装前保存的 HMI 文件和 preload 相关配置。
-3. 如果安装或恢复中断，运行会保持关闭。保留原备份卡，先重新执行 `RESTORE ORIGINAL`，确认恢复成功后再考虑重新 `INSTALL`；不要在恢复未完成时继续 `START`。
+2. 等待屏幕出现 `RESULT:` 结论。`RESULT: SUCCESS` 表示已恢复原车配置，然后完整重启车机。恢复会停止显示进程、释放 Context80 显示需求、移除启动项、删除本项目的 HMI JAR，并还原安装前保存的 HMI 文件和 preload 相关配置。
+3. 如果显示 `RESULT: FAILED`，按结论下方的提示操作；若提示 rollback 不完整，**不要重启**，先再次执行 `RESTORE ORIGINAL`。车机本来就是原车状态时会显示 `RESULT: NOTHING TO RESTORE`。
 
 ### 8. 从旧版本升级
 
-升级必须**先复原、再安装**，不要在旧版运行状态下直接覆盖执行 `INSTALL`：
+升级**不需要再手动复原**：
 
-1. 断开 iPhone / CarPlay，插入保留了 `MMI-Cockpit-Carplay` 原车备份目录的 SD 卡。
-2. 在车机上现有的 `MMI-Cockpit-Carplay` 菜单中执行 `RESTORE ORIGINAL`，等待 `RESTORE=PASS` 和 `reboot_required=YES`，然后完整重启车机。若复原失败，停止升级，保留备份卡并记录提示。
-3. 复原成功后，按第 2 节把新版覆盖包合并到 SD 卡，并删除旧版遗留的 `logo.rgba` 和 `watermark.rgba`。卡上的 `MMI-Cockpit-Carplay` 目录必须完整保留。
-4. 按第 3 节执行 `Update Toolbox`，再按第 4 节执行 `INSTALL WITH RGI` 或 `INSTALL NO RGI` → 完整重启 → `START` → 完整重启。
+1. 断开 iPhone / CarPlay，插入保留了 `MMI-Cockpit-Carplay` 原车备份目录的 SD 卡（即当初安装用的卡）。
+2. 按第 2 节把新版覆盖包合并到这张 SD 卡，删除旧版遗留的 `logo.rgba` 和 `watermark.rgba`；卡上的 `MMI-Cockpit-Carplay` 目录必须完整保留。
+3. 按第 3 节执行 `Update Toolbox`，再按第 4 节执行 `INSTALL WITH RGI` 或 `INSTALL NO RGI`。安装程序检测到旧版本后，会先自动执行完整的复原并校验，然后再安装新版。
+4. 看到 `RESULT: SUCCESS` 后完整重启车机一次。
+
+如果卡上没有原车备份（例如换了 SD 卡），安装程序会在第 2 步停止并提示，不会改动车机。
 
 车机修改有黑屏或需要恢复的风险。
 
@@ -372,6 +384,14 @@ main
 当前公开版本以稳定、可安装、可恢复为优先目标。
 
 ### 更新记录
+
+**安装流程改进（开发中，待实车验证）**
+
+- `INSTALL WITH RGI` / `INSTALL NO RGI` 合并了安装和启用，全程只需重启一次；菜单移除 `START`。
+- 检测到旧版本时自动先卸载（完整复原并校验），再安装新版；切换安装模式也无需手动复原。
+- 安装、复原和 `STORE LOGS + RESTORE` 的进度实时显示，不再等全部跑完才一次性输出。
+- 屏幕只显示简洁的英文步骤和错误，完整细节写入 SD 卡日志；最后统一给出 `RESULT: SUCCESS / FAILED` 结论，并说明车机当前状态和下一步操作。
+- 启用自启动或最终校验失败时，自动恢复原车配置。
 
 **V3.7Fix1**
 

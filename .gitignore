@@ -80,6 +80,8 @@
 !/Toolbox/carplay_alt_screen/rgi_renderer/release/maneuver_render
 !/Toolbox/carplay_alt_screen/universal/libcarplay_altscreen.so
 !/Toolbox/scripts/altscreen_adaptive_diag.sh
+!/Toolbox/scripts/altscreen_console.sh
+!/Toolbox/scripts/altscreen_install.sh
 !/Toolbox/scripts/altscreen_boot_diag.sh
 !/Toolbox/scripts/altscreen_chain_test.sh
 !/Toolbox/scripts/altscreen_chain_test_known.sh

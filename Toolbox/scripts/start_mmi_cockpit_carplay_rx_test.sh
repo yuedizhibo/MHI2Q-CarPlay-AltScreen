@@ -522,12 +522,20 @@ RC=$?
 [ "$RC" -eq 0 ] || fail_rc "$RC" "integrated AltScreen controller START failed"
 
 stage STREAM_SUPERVISOR_START
-/bin/sh "$MIRROR_SUPERVISOR" >/dev/null 2>&1 &
-sleep 1
-SUP_PID=$(cat "$SUPERVISOR_PID" 2>/dev/null || true)
-case "$SUP_PID" in ''|*[!0-9]*) fail "stream supervisor pid unavailable" ;; esac
-kill -0 "$SUP_PID" 2>/dev/null || fail "stream supervisor exited during startup"
-echo "STREAM_SUPERVISOR=RUNNING pid=$SUP_PID marker=$STREAM_READY"
+if [ "${ALTS_START_DEFER_SUPERVISOR:-0}" = 1 ]; then
+    # One-step INSTALL: the head unit is rebooted right after this START and
+    # the boot autostart block launches the supervisor. Launching it now would
+    # only run against the pre-reboot CarPlay process without the new preload.
+    SUP_PID=deferred
+    echo "STREAM_SUPERVISOR=DEFERRED_TO_REBOOT launcher=boot_autostart"
+else
+    /bin/sh "$MIRROR_SUPERVISOR" >/dev/null 2>&1 &
+    sleep 1
+    SUP_PID=$(cat "$SUPERVISOR_PID" 2>/dev/null || true)
+    case "$SUP_PID" in ''|*[!0-9]*) fail "stream supervisor pid unavailable" ;; esac
+    kill -0 "$SUP_PID" 2>/dev/null || fail "stream supervisor exited during startup"
+    echo "STREAM_SUPERVISOR=RUNNING pid=$SUP_PID marker=$STREAM_READY"
+fi
 
 stage COMPLETE
 
@@ -541,7 +549,7 @@ echo "DISPLAY_START_POLICY=STREAM_DRIVEN marker=/tmp/altscreen-private111.stream
 echo "DYNAMIC_JAVA80_DEMAND=/tmp/mmi-mirror-active owner=stream_supervisor"
 echo "READY_MARKER=/tmp/mmi-mirror-basevideo.ready meaning=destination_first_successful_gles_present"
 if [ -f "$STARTED" ]; then echo "JAVA_CONTROLLER=OBSERVED current_boot=YES"; else echo "JAVA_CONTROLLER=NOT_YET_OBSERVED current_boot=NO_or_reboot_pending"; fi
-echo "STREAM_SUPERVISOR=RUNNING pidfile=$SUPERVISOR_PID log=$SUPERVISOR_LOG"
+[ "$SUP_PID" = deferred ] || echo "STREAM_SUPERVISOR=RUNNING pidfile=$SUPERVISOR_PID log=$SUPERVISOR_LOG"
 echo "DIRECT_DISPLAY_SIDECAR=STARTS_ONLY_AFTER_PRIVATE111_STREAM_READY pidfile=$MIRROR_PID log=$MIRROR_LOG"
 echo "START=PASS integrated=AltScreen+H264Tap+DecoderTap+Displayable3+Java80 reboot_required=YES"
 exit 0

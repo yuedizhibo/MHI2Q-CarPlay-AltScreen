@@ -11,94 +11,82 @@ ensure_dirs() {
     return 0
 }
 
-# Capture collection + restore as one persistent SD operation log.  The generic
-# ALTS_OPLOG_CAPTURED marker is inherited by RESTORE ORIGINAL so the nested
-# launcher does not create a second, partial log.
+# GEM entry: stream log collection + restore to one SD operation log as it
+# runs, show short progress on the screen, and finish with one RESULT block.
+# ALTS_OPLOG_CAPTURED is inherited by RESTORE ORIGINAL so the nested launcher
+# enters its transaction directly instead of opening a second log.
 if [ "${ALTS_OPLOG_CAPTURED:-0}" != 1 ]; then
     CAPTURE_ENTRY="$0"
     RESOLVED_CAPTURE=$(command -v -- "$CAPTURE_ENTRY" 2>/dev/null)
     [ -n "$RESOLVED_CAPTURE" ] && CAPTURE_ENTRY="$RESOLVED_CAPTURE"
 
     journal_volume=""
+    journal_root=""
     if [ "${ALTSCREEN_CHAIN_TESTING:-0}" = 1 ]; then
         journal_volume=${ALTSCREEN_CHAIN_VOLUME:-}
+        journal_root=${ALTSCREEN_CHAIN_ROOT:-}
         case "$journal_volume" in /tmp/*|/var/tmp/*) ;; *) echo "FAIL: invalid ALTSCREEN_CHAIN_VOLUME"; exit 2 ;; esac
     else
         for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
             if [ -d "$candidate/Toolbox" ]; then journal_volume=$candidate; break; fi
         done
     fi
-    [ -n "$journal_volume" ] && [ -d "$journal_volume/Toolbox" ] || {
-        echo "RESTORE=REFUSED reason=SD_WITH_TOOLBOX_NOT_FOUND production_changed=NO"
+    if [ -z "$journal_volume" ] || [ ! -d "$journal_volume/Toolbox" ]; then
+        echo "=============================================="
+        echo " RESULT: FAILED"
+        echo " No SD card with a Toolbox folder was found."
+        echo " Nothing was changed. Insert the SD card that"
+        echo " holds MMI-Cockpit-Carplay/backup and try again."
+        echo "=============================================="
         exit 1
-    }
+    fi
+    CONSOLE="$journal_volume/Toolbox/scripts/altscreen_console.sh"
+    if [ ! -f "$CONSOLE" ]; then
+        # Older/partial package: still collect + restore, just without the new screen.
+        echo "WARN: altscreen_console.sh missing; running without progress view"
+        ALTS_OPLOG_CAPTURED=1; export ALTS_OPLOG_CAPTURED
+        if [ "$#" -gt 0 ]; then exec /bin/sh "$CAPTURE_ENTRY" "$@"; else exec /bin/sh "$CAPTURE_ENTRY"; fi
+    fi
+    . "$CONSOLE"
     SD_RW_HELPER="$journal_volume/Toolbox/scripts/altscreen_sd_writable.sh"
-    [ -f "$SD_RW_HELPER" ] || { echo "RESTORE=REFUSED reason=SD_WRITABLE_HELPER_MISSING production_changed=NO"; exit 127; }
-    . "$SD_RW_HELPER"
-    altscreen_sd_ensure_writable "$journal_volume" STORE_RESTORE_JOURNAL || { echo "RESTORE=REFUSED reason=SD_NOT_WRITABLE production_changed=NO"; exit 1; }
-
-    journal_stamp=$(date +%Y%m%d_%H%M%S 2>/dev/null || echo unknown)
-    journal_dir="$journal_volume/MMI-Cockpit-Carplay/logs/operations"
-    journal_storage=SD
-    if ensure_dirs "$journal_dir" 2>/dev/null; then
-        journal_base="$journal_dir/store_restore_${journal_stamp}"
-        journal="$journal_base.log"
-        journal_n=0
-        while [ -e "$journal" ]; do
-            journal_n=$((journal_n + 1))
-            journal="${journal_base}_${journal_n}.log"
-        done
-    else
-        journal_storage=TMP
-        journal_root=""
-        if [ "${ALTSCREEN_CHAIN_TESTING:-0}" = 1 ]; then journal_root=${ALTSCREEN_CHAIN_ROOT:-}; fi
-        journal="$journal_root/tmp/altscreen_store_restore_${journal_stamp}.log"
+    sd_ok=0
+    if [ -f "$SD_RW_HELPER" ]; then
+        . "$SD_RW_HELPER"
+        altscreen_sd_ensure_writable "$journal_volume" STORE_RESTORE_JOURNAL >/dev/null 2>&1 && sd_ok=1
     fi
-
-    if ! (printf 'OP_BEGIN action=STORE_LOGS_RESTORE script=%s storage=%s\n' "$CAPTURE_ENTRY" "$journal_storage" > "$journal") 2>/dev/null; then
-        if [ "$journal_storage" = SD ]; then
-            journal_storage=TMP
-            journal_root=""
-            if [ "${ALTSCREEN_CHAIN_TESTING:-0}" = 1 ]; then journal_root=${ALTSCREEN_CHAIN_ROOT:-}; fi
-            journal="$journal_root/tmp/altscreen_store_restore_${journal_stamp}.log"
-            (printf 'OP_BEGIN action=STORE_LOGS_RESTORE script=%s storage=%s\n' "$CAPTURE_ENTRY" "$journal_storage" > "$journal") 2>/dev/null || {
-                echo "WARN: STORE LOGS + RESTORE journal unavailable on SD and /tmp; restore will continue unjournaled"
-                ALTS_OPLOG_CAPTURED=1; export ALTS_OPLOG_CAPTURED
-                if [ "$#" -gt 0 ]; then exec /bin/sh "$CAPTURE_ENTRY" "$@"; else exec /bin/sh "$CAPTURE_ENTRY"; fi
-            }
-            printf 'STORE_RESTORE_JOURNAL_FALLBACK=TMP reason=sd_write_failed\n' >> "$journal"
-        else
-            echo "WARN: STORE LOGS + RESTORE journal unavailable on /tmp; restore will continue unjournaled"
-            ALTS_OPLOG_CAPTURED=1; export ALTS_OPLOG_CAPTURED
-            if [ "$#" -gt 0 ]; then exec /bin/sh "$CAPTURE_ENTRY" "$@"; else exec /bin/sh "$CAPTURE_ENTRY"; fi
-        fi
+    alts_ui_open_log "$journal_volume" store_restore "$journal_root/tmp" || true
+    alts_ui_header \
+        "MMI-Cockpit-Carplay - STORE LOGS + RESTORE" \
+        "Saves diagnostic logs, then restores stock." \
+        "Keep the SD card inserted and the power on." \
+        "Do not reboot until RESULT is shown."
+    if [ "$sd_ok" != 1 ]; then
+        alts_ui_result "FAILED" \
+            "The SD card is not writable." \
+            "Nothing was changed. Check the card (FAT32," \
+            "not write-protected) and try again."
+        alts_ui_close_log 1
+        exit 1
     fi
-    printf 'DIAGNOSTICS_VOLUME=%s\n' "$journal_volume" >> "$journal"
-
+    if ! alts_ui_lock "$journal_root/tmp"; then
+        alts_ui_result "FAILED" \
+            "Another INSTALL / RESTORE is still running." \
+            "Nothing was changed. Wait for its RESULT, then" \
+            "try again."
+        alts_ui_close_log 1
+        exit 1
+    fi
+    alts_detect_previous "$journal_root" "$journal_volume"
     if [ "$#" -gt 0 ]; then
-        ALTS_OPLOG_CAPTURED=1 /bin/sh "$CAPTURE_ENTRY" "$@" >> "$journal" 2>&1
+        ALTS_OPLOG_CAPTURED=1 alts_ui_run /bin/sh "$CAPTURE_ENTRY" "$@"
     else
-        ALTS_OPLOG_CAPTURED=1 /bin/sh "$CAPTURE_ENTRY" >> "$journal" 2>&1
+        ALTS_OPLOG_CAPTURED=1 alts_ui_run /bin/sh "$CAPTURE_ENTRY"
     fi
     journal_rc=$?
-    printf 'OP_END action=STORE_LOGS_RESTORE rc=%s\n' "$journal_rc" >> "$journal"
-    printf 'OPERATION_LOG=%s\n' "$journal" >> "$journal"
-
-    if [ "$journal_storage" = TMP ]; then
-        target_dir="$journal_volume/MMI-Cockpit-Carplay/logs/operations"
-        if ensure_dirs "$target_dir" 2>/dev/null; then
-            target="$target_dir/store_restore_${journal_stamp}_recovered.log"
-            cp "$journal" "$target.new" 2>/dev/null &&
-                mv "$target.new" "$target" 2>/dev/null &&
-                printf 'STORE_RESTORE_JOURNAL_FLUSHED_TO_SD=%s\n' "$target" >> "$journal" ||
-                rm -f "$target.new" 2>/dev/null || true
-        fi
-    fi
-    sync >/dev/null 2>&1 || true
-    # STORE LOGS + RESTORE may contain large collected streams. Keep the full
-    # record on SD while replaying only the tail to the GEM console.
-    echo "OPERATION_LOG=$journal"
-    tail -c 262144 "$journal" 2>/dev/null || cat "$journal"
+    [ "$journal_rc" -ne 0 ] || alts_ui "      OK"
+    alts_ui_restore_result "$journal_rc" "$ALTS_PREVIOUS"
+    alts_ui_close_log "$journal_rc"
+    alts_ui_unlock
     exit "$journal_rc"
 fi
 
@@ -135,12 +123,17 @@ RESTORE="$SCRIPTDIR/stop_mmi_cockpit_carplay_test.sh"
 [ -f "$CONTROLLER" ] || { echo "FAIL: installed chain controller is missing: $CONTROLLER"; exit 127; }
 [ -f "$RESTORE" ] || { echo "FAIL: integrated restore launcher is missing: $RESTORE"; exit 127; }
 
+echo "@@UI"
+echo "@@UI [1/2] Collecting logs..."
 /bin/sh "$CONTROLLER" collect
 COLLECT_RC=$?
 if [ "$COLLECT_RC" -eq 0 ]; then
     echo "log collection complete"
 else
     echo "WARN: log collection incomplete (status $COLLECT_RC); restoring originals anyway"
+    echo "@@UI       Some logs could not be collected; continuing"
 fi
+echo "@@UI"
+echo "@@UI [2/2] Restoring stock configuration..."
 
 exec /bin/sh "$RESTORE"

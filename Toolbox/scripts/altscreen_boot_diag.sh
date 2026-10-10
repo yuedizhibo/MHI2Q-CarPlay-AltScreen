@@ -269,9 +269,9 @@ run_flat_plaintext() {
             cp "$ROOT/tmp/carplay-oem-geometry.state" "$FLAT_DEST/streams/carplay-oem-geometry.state.new" 2>/dev/null &&
                 mv "$FLAT_DEST/streams/carplay-oem-geometry.state.new" "$FLAT_DEST/streams/carplay-oem-geometry.state" 2>/dev/null || true
         fi
-        if [ -f "$ROOT/tmp/mmi-mirror-displayable3.state" ]; then
-            cp "$ROOT/tmp/mmi-mirror-displayable3.state" "$FLAT_DEST/streams/mmi-mirror-displayable3.state.new" 2>/dev/null &&
-                mv "$FLAT_DEST/streams/mmi-mirror-displayable3.state.new" "$FLAT_DEST/streams/mmi-mirror-displayable3.state" 2>/dev/null || true
+        if [ -f "$ROOT/tmp/mmi-altscreen-displayable3.state" ]; then
+            cp "$ROOT/tmp/mmi-altscreen-displayable3.state" "$FLAT_DEST/streams/mmi-altscreen-displayable3.state.new" 2>/dev/null &&
+                mv "$FLAT_DEST/streams/mmi-altscreen-displayable3.state.new" "$FLAT_DEST/streams/mmi-altscreen-displayable3.state" 2>/dev/null || true
         fi
         flat_system_offset=$(flat_capture_delta "$flat_system" "$flat_system_offset" "$FLAT_DEST/streams/system.log" "${FLAT_PREFIX}_system.chunk")
         if [ -f "$flat_system" ] && [ "$(wc -c < "$flat_system")" -ge 8388608 ]; then
@@ -301,7 +301,7 @@ run_flat_plaintext() {
                 printf 'DISPLAY_STATE_PATH_PERMISSIONS_BEGIN\n'
                 id 2>/dev/null || true
                 ls -ld "$ROOT/tmp" 2>&1 || true
-                for display_state_probe in "$ROOT/tmp/mmi-mirror-displayable3.state" "$ROOT/tmp/mmi-mirror-displayable3.state.tmp" "$ROOT/tmp"/mmi-mirror-displayable3.state.tmp.*; do
+                for display_state_probe in "$ROOT/tmp/mmi-altscreen-displayable3.state" "$ROOT/tmp/mmi-altscreen-displayable3.state.tmp" "$ROOT/tmp"/mmi-altscreen-displayable3.state.tmp.*; do
                     if [ -e "$display_state_probe" ]; then
                         ls -l "$display_state_probe" 2>&1 || true
                     else

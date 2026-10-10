@@ -26,3 +26,5 @@ supervisor_lease_port=19801
 supervisor_lease_fd=9
 supervisor_parent_loss=WATCHDOG_EXIT_RELEASE_LEASE
 supervisor_watchdog_create_failure=FAIL_RETRY
+altscreen_active_marker=/tmp/mmi-altscreen-active
+altscreen_ready_marker=/tmp/mmi-altscreen-basevideo.ready

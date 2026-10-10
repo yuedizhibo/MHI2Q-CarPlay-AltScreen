@@ -14,12 +14,41 @@ case "$0" in
 esac
 ROOT=$(CDPATH= cd "$ROOT" 2>/dev/null && pwd) || exit 2
 
+
+# Independent Mirror and AltScreen own the same physical cluster display.
+# Check live process arguments, never a lone stale marker. Do not kill or
+# uninstall another package; refuse before changing our production state.
+altscreen_display_precheck() {
+    if ! command -v pidin >/dev/null 2>&1; then
+        echo "DISPLAY_PRECHECK=UNAVAILABLE reason=pidin_missing" >&2
+        return 0
+    fi
+    alts_display_processes=$(pidin ar 2>/dev/null) || {
+        echo "DISPLAY_PRECHECK=FAILED reason=process_inventory_unavailable" >&2
+        return 1
+    }
+    alts_display_conflicts=$(printf '%s\n' "$alts_display_processes" | awk '
+      /(^|[\/[:space:]])mmi_mirror_supervisor\.sh([[:space:]]|$)/ ||
+      /(^|[\/[:space:]])stop_mmi_mirror_toolbox\.sh([[:space:]]|$)/ {
+        print
+      }')
+    if [ -n "$alts_display_conflicts" ]; then
+        echo "DISPLAY_PRECHECK=REFUSED reason=EXTERNAL_MIRROR_RUNNING production_changed=NO" >&2
+        printf '%s\n' "$alts_display_conflicts" >&2
+        echo "Stop the separate Mirror package before starting or installing AltScreen." >&2
+        return 1
+    fi
+    return 0
+}
+
+altscreen_display_precheck || exit 5
+
 TMP_ROOT="${ALT111_MIRROR_TMP_ROOT:-/tmp}"
 PIDFILE="$TMP_ROOT/altscreen_stream_supervisor.pid"
 STATEFILE="$TMP_ROOT/altscreen_stream_supervisor.active"
 LOGFILE="$TMP_ROOT/altscreen_stream_supervisor.log"
 STREAM_READY="$TMP_ROOT/altscreen-private111.stream-ready"
-ACTIVE="${ALT111_MIRROR_ACTIVE_FILE:-/tmp/mmi-mirror-active}"
+ACTIVE="${ALT111_MIRROR_ACTIVE_FILE:-$TMP_ROOT/mmi-altscreen-active}"
 MIRROR_PID="$TMP_ROOT/altscreen_mirror.pid"
 START="$ROOT/start_vehicle.sh"
 STOP="$ROOT/stop_vehicle.sh"

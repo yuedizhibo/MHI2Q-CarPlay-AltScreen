@@ -1,7 +1,7 @@
 #!/bin/sh
 # private111 direct-display START.
 # Arms type111 + H264/decoded SHM taps. Java/HMI remains the sole terminal1/ctx80
-# owner; /tmp/mmi-mirror-basevideo.ready is published only after displayable3
+# owner; /tmp/mmi-altscreen-basevideo.ready is published only after displayable3
 # has successfully presented its first decoded frame.
 set -u
 
@@ -138,6 +138,35 @@ if [ "$SCRIPTDIR" != "$APP_BIN" ] && [ -f "$APP_SELF" ] && [ -f "$APP_BIN/altscr
     fi
 fi
 
+
+# Independent Mirror and AltScreen own the same physical cluster display.
+# Check live process arguments, never a lone stale marker. Do not kill or
+# uninstall another package; refuse before changing our production state.
+altscreen_display_precheck() {
+    if ! command -v pidin >/dev/null 2>&1; then
+        echo "DISPLAY_PRECHECK=UNAVAILABLE reason=pidin_missing" >&2
+        return 0
+    fi
+    alts_display_processes=$(pidin ar 2>/dev/null) || {
+        echo "DISPLAY_PRECHECK=FAILED reason=process_inventory_unavailable" >&2
+        return 1
+    }
+    alts_display_conflicts=$(printf '%s\n' "$alts_display_processes" | awk '
+      /(^|[\/[:space:]])mmi_mirror_supervisor\.sh([[:space:]]|$)/ ||
+      /(^|[\/[:space:]])stop_mmi_mirror_toolbox\.sh([[:space:]]|$)/ {
+        print
+      }')
+    if [ -n "$alts_display_conflicts" ]; then
+        echo "DISPLAY_PRECHECK=REFUSED reason=EXTERNAL_MIRROR_RUNNING production_changed=NO" >&2
+        printf '%s\n' "$alts_display_conflicts" >&2
+        echo "Stop the separate Mirror package before starting or installing AltScreen." >&2
+        return 1
+    fi
+    return 0
+}
+
+altscreen_display_precheck || exit 1
+
 CONTROLLER="$SCRIPTDIR/altscreen_chain_test.sh"
 [ -f "$CONTROLLER" ] || { echo "FAIL: installed chain controller missing"; exit 127; }
 
@@ -150,9 +179,9 @@ EXPECTED_SIZE=$(sed -n 's/^jar_size=//p' "$HMI_INFO" 2>/dev/null || true)
 EXPECTED_CKSUM=$(sed -n 's/^jar_cksum=//p' "$HMI_INFO" 2>/dev/null || true)
 case "$EXPECTED_SIZE:$EXPECTED_CKSUM" in *[!0-9:]*|:*|*:) echo "FAIL: invalid installed HMI identity metadata; run INSTALL" >&2; exit 1 ;; esac
 [ "$EXPECTED_SIZE" -gt 0 ] || exit 1
-ACTIVE="$DEVICE_ROOT/tmp/mmi-mirror-active"
-READY="$DEVICE_ROOT/tmp/mmi-mirror-basevideo.ready"
-STARTED="$DEVICE_ROOT/tmp/mmi-mirror-controller.started"
+ACTIVE="$DEVICE_ROOT/tmp/mmi-altscreen-active"
+READY="$DEVICE_ROOT/tmp/mmi-altscreen-basevideo.ready"
+STARTED="$DEVICE_ROOT/tmp/mmi-altscreen-controller.started"
 MIRROR="$RUNTIME/bin/mirror"
 MIRROR_START="$MIRROR/start_vehicle.sh"
 MIRROR_STOP="$MIRROR/stop_vehicle.sh"
@@ -465,7 +494,7 @@ if [ -f /mnt/app/root/carplay-altscreen/state/basevideo3.enabled ]; then
     (
         AUTOLOG=/tmp/altscreen_autostart.log
         echo "AUTOSTART_BEGIN component=private111_stream_supervisor policy=stream_driven_no_fixed_delay" >>"$AUTOLOG" 2>&1 || true
-        rm -f /tmp/mmi-mirror-basevideo.ready /tmp/mmi-mirror-active >/dev/null 2>&1 || true
+        rm -f /tmp/mmi-altscreen-basevideo.ready /tmp/mmi-altscreen-active >/dev/null 2>&1 || true
         if [ -x /mnt/app/root/carplay-altscreen/bin/mirror/stream_supervisor.sh ]; then
             /bin/sh /mnt/app/root/carplay-altscreen/bin/mirror/stream_supervisor.sh >>"$AUTOLOG" 2>&1
             SUPERVISOR_RC=$?
@@ -546,8 +575,8 @@ echo "HMI_CONTROL_PLANE=JAVA80 context=80 composite=98,101,102,3"
 echo "CONTEXT_POLICY=JAVA_ONLY native_dmdt=0 sidecar_dmdt=0"
 echo "PRIVATE111_NEGOTIATION_POLICY=V35_EARLY_PROTOCOL_READY sd_runtime_gate=DISABLED geometry_gate=ASYNC"
 echo "DISPLAY_START_POLICY=STREAM_DRIVEN marker=/tmp/altscreen-private111.stream-ready stable_decoded_frames=2 fixed_delay=NONE"
-echo "DYNAMIC_JAVA80_DEMAND=/tmp/mmi-mirror-active owner=stream_supervisor"
-echo "READY_MARKER=/tmp/mmi-mirror-basevideo.ready meaning=destination_first_successful_gles_present"
+echo "DYNAMIC_JAVA80_DEMAND=/tmp/mmi-altscreen-active owner=stream_supervisor"
+echo "READY_MARKER=/tmp/mmi-altscreen-basevideo.ready meaning=destination_first_successful_gles_present"
 if [ -f "$STARTED" ]; then echo "JAVA_CONTROLLER=OBSERVED current_boot=YES"; else echo "JAVA_CONTROLLER=NOT_YET_OBSERVED current_boot=NO_or_reboot_pending"; fi
 [ "$SUP_PID" = deferred ] || echo "STREAM_SUPERVISOR=RUNNING pidfile=$SUPERVISOR_PID log=$SUPERVISOR_LOG"
 echo "DIRECT_DISPLAY_SIDECAR=STARTS_ONLY_AFTER_PRIVATE111_STREAM_READY pidfile=$MIRROR_PID log=$MIRROR_LOG"

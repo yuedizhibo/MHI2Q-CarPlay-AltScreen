@@ -49,6 +49,35 @@ else
   BIN="$ROOT/release/carplay-alt111-mirror-display"
 fi
 
+
+# Independent Mirror and AltScreen own the same physical cluster display.
+# Check live process arguments, never a lone stale marker. Do not kill or
+# uninstall another package; refuse before changing our production state.
+altscreen_display_precheck() {
+    if ! command -v pidin >/dev/null 2>&1; then
+        echo "DISPLAY_PRECHECK=UNAVAILABLE reason=pidin_missing" >&2
+        return 0
+    fi
+    alts_display_processes=$(pidin ar 2>/dev/null) || {
+        echo "DISPLAY_PRECHECK=FAILED reason=process_inventory_unavailable" >&2
+        return 1
+    }
+    alts_display_conflicts=$(printf '%s\n' "$alts_display_processes" | awk '
+      /(^|[\/[:space:]])mmi_mirror_supervisor\.sh([[:space:]]|$)/ ||
+      /(^|[\/[:space:]])stop_mmi_mirror_toolbox\.sh([[:space:]]|$)/ {
+        print
+      }')
+    if [ -n "$alts_display_conflicts" ]; then
+        echo "DISPLAY_PRECHECK=REFUSED reason=EXTERNAL_MIRROR_RUNNING production_changed=NO" >&2
+        printf '%s\n' "$alts_display_conflicts" >&2
+        echo "Stop the separate Mirror package before starting or installing AltScreen." >&2
+        return 1
+    fi
+    return 0
+}
+
+altscreen_display_precheck || exit 5
+
 TMP_ROOT="${ALT111_MIRROR_TMP_ROOT:-/tmp}"
 PIDFILE="$TMP_ROOT/altscreen_mirror.pid"
 WATCH_PIDFILE="$TMP_ROOT/altscreen_mirror.lifecycle.pid"
@@ -58,7 +87,7 @@ AUTORESTART_LOG="$TMP_ROOT/altscreen_mirror.autorestart.log"
 RECOVERY_DIR=$(alts_posix_tmp_dir "$TMP_ROOT")
 RECOVERY_LOCK="$RECOVERY_DIR/altscreen_mirror.recovery.lock"
 READY="$TMP_ROOT/altscreen_mirror.ready"
-BASE_READY="${ALT111_JAVA_BASE_READY_FILE:-/tmp/mmi-mirror-basevideo.ready}"
+BASE_READY="${ALT111_JAVA_BASE_READY_FILE:-$TMP_ROOT/mmi-altscreen-basevideo.ready}"
 GATE_TOKEN="$TMP_ROOT/altscreen_mirror.phone111.gate"
 HOOK_LOG="$TMP_ROOT/altscreen_hook.log"
 VOLATILE_MODE=FLAT_TMP
@@ -74,7 +103,7 @@ if [ -f "$LEGACY_PIDFILE" ]; then
   fi
 fi
 
-DEMAND="${ALT111_MIRROR_ACTIVE_FILE:-/tmp/mmi-mirror-active}"
+DEMAND="${ALT111_MIRROR_ACTIVE_FILE:-$TMP_ROOT/mmi-altscreen-active}"
 RESTART_REASON="${ALT111_MIRROR_RESTART_REASON:-}"
 RESTART_COUNT="${ALT111_MIRROR_RESTART_COUNT:-0}"
 MAX_ABNORMAL_RESTARTS="${ALT111_MIRROR_MAX_ABNORMAL_RESTARTS:-3}"
@@ -86,6 +115,7 @@ case "$MAX_ABNORMAL_RESTARTS" in ''|*[!0-9]*) MAX_ABNORMAL_RESTARTS=3 ;; esac
 
 export ALT111_MIRROR_READY_FILE="$READY"
 export ALT111_MIRROR_BASE_READY_FILE="$BASE_READY"
+export ALT111_DISPLAYABLE_STATE_FILE="${ALT111_DISPLAYABLE_STATE_FILE:-$TMP_ROOT/mmi-altscreen-displayable3.state}"
 export ALT111_MIRROR_GATE_TOKEN_FILE="$GATE_TOKEN"
 export ALT111_MIRROR_HOOK_LOG="$HOOK_LOG"
 

@@ -6,8 +6,10 @@
  * Screen, socket or pthread ABI call is made while the table lock is held.
  */
 #include "p1404_abi.h"
+#include "p1404_lock_wait.h"
 #include <stddef.h>
 #include <string.h>
+#include <unistd.h>
 
 #define ALT_STATE_MAX 8
 #define AS_STREAM_SLOTS 8
@@ -20,7 +22,7 @@ static uint64_t g_stream_calls[AS_STREAM_SLOTS];
 static volatile unsigned g_state_guard;
 
 void alt_state_table_lock(void) {
-    while (__sync_lock_test_and_set(&g_state_guard, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_state_guard, 1u) != 0u) p1404_lock_wait_yield();
 }
 
 void alt_state_table_unlock(void) {

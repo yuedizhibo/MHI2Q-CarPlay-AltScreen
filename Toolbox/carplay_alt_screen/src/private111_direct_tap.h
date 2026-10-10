@@ -33,6 +33,7 @@ struct p111_frame_progress_snapshot {
     uint32_t frame_count;
     uint32_t sequence;
     uint32_t last_publish_us32;
+    uint32_t h264_packets;
     int active;
 };
 

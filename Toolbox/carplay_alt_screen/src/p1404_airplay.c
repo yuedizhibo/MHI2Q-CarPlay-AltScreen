@@ -574,7 +574,8 @@ static int alt_load_measured_k1004_safe_area(uint32_t display_w,
     int64_t physical_x, physical_y;
     if (!view || !layout || !out) return 0;
     if (!alt_is_measured_b9_canvas(display_w, display_h)) return 0;
-    if (!strstr(layout, "LayoutMIB2HighB9")) return 0;
+    if (!strstr(layout, "LayoutMIB2HighB9") &&
+        !strstr(layout, "LayoutMIB2HighQ7")) return 0;
 
     memset(&r, 0, sizeof(r));
 
@@ -890,7 +891,8 @@ void *alt_build_cluster_display(void) {
         alt_is_measured_b9_canvas(d->width_pixels, d->height_pixels);
     layout_known =
         two_area_capable &&
-        strstr(cluster_safe.layout, "LayoutMIB2HighB9") != NULL;
+        (strstr(cluster_safe.layout, "LayoutMIB2HighB9") != NULL ||
+         strstr(cluster_safe.layout, "LayoutMIB2HighQ7") != NULL);
     initial_view_area =
         layout_known && !strcmp(cluster_safe.view, "SMALL") ? 1 : 0;
 
@@ -1000,6 +1002,10 @@ static void alt111_event_response(int status, void *response, void *opaque) {
                 ctx->receiver, ctx->stream, ctx->generation,
                 ctx->event_seq, ctx->event_value,
                 status, response != NULL);
+        else if (ctx->event_kind == ALT111_EVENT_RECOVERY_KEYFRAME)
+            p1404_cockpit_native_recovery_result(
+                ctx->receiver, ctx->stream, ctx->generation,
+                ctx->event_seq, status, response != NULL);
         else
             p1404_cockpit_native_event_result(ctx->receiver, ctx->stream,
                                           ctx->generation, ctx->event_kind,
@@ -1009,7 +1015,8 @@ static void alt111_event_response(int status, void *response, void *opaque) {
 }
 
 static int alt_send_cluster_event_impl(void *receiver, void *stream,
-                           uint32_t generation, int event_kind, int bootstrap) {
+                           uint32_t generation, int event_kind, int bootstrap,
+                           uint32_t event_seq) {
     airplay_send_command_fn send_command;
     struct alt111_event_context *ctx = NULL;
     const struct altscreen_display *display = altscreen_cluster_display();
@@ -1021,7 +1028,8 @@ static int alt_send_cluster_event_impl(void *receiver, void *stream,
         !display || !display->uuid)
         return -1;
     if (event_kind == ALT111_EVENT_SHOW_UI) type_name = "showUI";
-    else if (event_kind == ALT111_EVENT_FORCE_KEYFRAME) type_name = "forceKeyFrame";
+    else if (event_kind == ALT111_EVENT_FORCE_KEYFRAME ||
+             event_kind == ALT111_EVENT_RECOVERY_KEYFRAME) type_name = "forceKeyFrame";
     else if (event_kind == ALT111_EVENT_STOP_UI) type_name = "stopUI";
     else return -1;
 
@@ -1051,6 +1059,7 @@ static int alt_send_cluster_event_impl(void *receiver, void *stream,
     ctx->generation = generation;
     ctx->event_kind = event_kind;
     ctx->event_value = -1;
+    ctx->event_seq = event_seq;
     ctx->refs = 2; /* submit path plus callback path */
     rc = send_command(receiver, command, alt111_event_response, ctx);
     altscreen_log("PHASE=ALT111_EVENT_SUBMIT receiver=%p stream=%p generation=%u event=%s uuid=%s url=%s rc=%d response_callback=1",
@@ -1079,9 +1088,16 @@ done:
 
 int alt_send_cluster_event(void *receiver, void *stream, uint32_t generation,
                            int event_kind) {
-    return alt_send_cluster_event_impl(receiver, stream, generation, event_kind, 0);
+    return alt_send_cluster_event_impl(receiver, stream, generation, event_kind, 0, 0);
 }
 
+
+int alt_send_cluster_recovery(void *receiver, void *stream,
+                               uint32_t generation, uint32_t event_seq) {
+    if (!event_seq) return -1;
+    return alt_send_cluster_event_impl(receiver, stream, generation,
+        ALT111_EVENT_RECOVERY_KEYFRAME, 0, event_seq);
+}
 
 int alt_send_cluster_view_area(void *receiver, void *stream,
                                uint32_t generation, uint32_t event_seq,
@@ -1239,11 +1255,11 @@ done:
  * must not publish renderer/visibility success from its callback. */
 int alt_request_cluster_after_main(void *receiver) {
     int show_rc = alt_send_cluster_event_impl(receiver, NULL, 0,
-                                             ALT111_EVENT_SHOW_UI, 1);
+                                             ALT111_EVENT_SHOW_UI, 1, 0);
     int key_rc = -1;
     if (show_rc == 0)
         key_rc = alt_send_cluster_event_impl(receiver, NULL, 0,
-                                             ALT111_EVENT_FORCE_KEYFRAME, 1);
+                                             ALT111_EVENT_FORCE_KEYFRAME, 1, 0);
     altscreen_log("PHASE=ALT111_REQUEST_AFTER_MAIN receiver=%p show_rc=%d keyframe_rc=%d private_stream_required=0",
                   receiver, show_rc, key_rc);
     return show_rc ? show_rc : key_rc;

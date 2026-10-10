@@ -386,8 +386,11 @@ cleanup_volatile_runtime(){
           "$(p /tmp/altscreen-private111.stream-ready)" "$(p /tmp/altscreen-private111.stream-ready.new)" \
           "$(p /tmp/altscreen_stream_supervisor.pid)" "$(p /tmp/altscreen_stream_supervisor.active)" \
           "$(p /tmp/altscreen_stream_supervisor.log)" \
-          "$(p /tmp/mmi-mirror-active)" "$(p /tmp/mmi-mirror-basevideo.ready)" \
-          "$(p /tmp/mmi-mirror-controller.started)" 2>/dev/null || true
+          "$(p /tmp/mmi-altscreen-active)" "$(p /tmp/mmi-altscreen-basevideo.ready)" \
+          "$(p /tmp/mmi-altscreen-displayable3.state)" \
+          "$(p /tmp/mmi-altscreen-displayable3.state.tmp)" \
+          "$tmp_root"/mmi-altscreen-displayable3.state.tmp.* \
+          "$(p /tmp/mmi-altscreen-controller.started)" 2>/dev/null || true
     posix_tmp=$(alts_posix_tmp_dir "$(p /tmp)")
     rmdir "$posix_tmp/altscreen_mirror.recovery.lock" 2>/dev/null || true
     rmdir "$(p /tmp/altscreen_mirror.recovery.lock)" 2>/dev/null || true

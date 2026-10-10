@@ -17,6 +17,7 @@
  * Main110 remains exact stock passthrough.
  */
 #include "p1404_cockpit_native.h"
+#include "p1404_lock_wait.h"
 #include "p1404_abi.h"
 #include "p1404_airplay.h"
 #include "altscreen_core.h"
@@ -24,6 +25,7 @@
 #include "p1404_observe.h"
 #include "p1404_control_fence.h"
 #include "private111_direct_tap.h"
+#include "p1404_stream_recovery.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -94,6 +96,8 @@ enum native_route_action {
 };
 
 struct native_slot {
+    struct alt111_stream_recovery recovery;
+    int processing_live;
     void *receiver;
     void *stream;
     void *video_impl;
@@ -148,6 +152,7 @@ struct native_thread_job {
 static struct native_slot g_native[NATIVE_SLOTS];
 static volatile unsigned g_native_guard;
 static volatile unsigned g_route_guard;
+static volatile unsigned g_recovery_guard;
 /* Protected by g_route_guard. Identifies the generation that most recently
  * committed context76, so an old detached worker can never restore over a
  * newer private session. */
@@ -195,11 +200,11 @@ static uint32_t g_target_width;
 static uint32_t g_target_height;
 
 static void native_lock(void) {
-    while (__sync_lock_test_and_set(&g_native_guard, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_native_guard, 1u) != 0u) p1404_lock_wait_yield();
 }
 static void native_unlock(void) { __sync_lock_release(&g_native_guard); }
 static void route_lock(void) {
-    while (__sync_lock_test_and_set(&g_route_guard, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_route_guard, 1u) != 0u) p1404_lock_wait_yield();
 }
 static void route_unlock(void) { __sync_lock_release(&g_route_guard); }
 
@@ -585,7 +590,9 @@ static int request_route_action(struct native_slot *slot, int action) {
     rc = g_pthread_create(&thread, NULL, native_route_worker, job);
     if (rc != 0) {
         native_lock();
-        if (slot->action_generation == slot->generation) {
+        if (slot->generation == job->generation &&
+            slot->receiver == job->receiver && slot->stream == job->stream &&
+            slot->action_generation == job->generation) {
             slot->action_pending = 0;
             slot->action = NATIVE_ROUTE_NONE;
         }
@@ -636,11 +643,13 @@ static int native_read_view_area_target(void) {
     fclose(f);
 
     /*
-     * /info predeclares two viewAreas only for the measured B9 target family.
+     * /info predeclares two viewAreas on measured B9/Q7 canvases.
+     * Q7 log evidence has the same FULL 370/700 and SMALL 490/460 bounds.
      * Never send index 1 merely because a stale/foreign HMI state says SMALL:
      * on an unknown layout the display may have advertised only one viewArea.
      */
-    if (!have_layout || !strstr(layout, "LayoutMIB2HighB9"))
+    if (!have_layout || (!strstr(layout, "LayoutMIB2HighB9") &&
+                         !strstr(layout, "LayoutMIB2HighQ7")))
         return -1;
     return target;
 }
@@ -1054,6 +1063,93 @@ static void native_check_view_area_fresh_frame(
     }
 }
 
+/* Only held around recovery submission and ProcessFrames enter/exit, never
+ * while receiving video or while joining the worker. Avoid the control fence:
+ * teardown holds that fence while joining this worker. */
+static void recovery_lock(void) {
+    while (__sync_lock_test_and_set(&g_recovery_guard, 1u)) usleep(1000);
+}
+static void recovery_unlock(void) { __sync_lock_release(&g_recovery_guard); }
+
+void p1404_cockpit_native_processing(void *receiver, void *stream, int live) {
+    struct native_slot *slot;
+    recovery_lock();
+    native_lock();
+    slot = find_stream_locked(receiver, stream);
+    if (slot) slot->processing_live = live;
+    native_unlock();
+    recovery_unlock();
+}
+
+/* Recovery never changes stream ownership, TCP/CTR state, or Main110. */
+void p1404_cockpit_native_recovery_result(void *receiver, void *stream,
+        uint32_t generation, uint32_t event_seq, int status,
+        int response_received) {
+    struct native_slot *slot;
+    int applied = 0;
+    native_lock();
+    slot = find_stream_locked(receiver, stream);
+    if (slot && slot->generation == generation)
+        applied = alt111_recovery_result(&slot->recovery, event_seq);
+    native_unlock();
+    altscreen_log("PHASE=ALT111_RECOVERY_RESULT receiver=%p stream=%p generation=%u request_seq=%u status=%d response_received=%d applied=%d picture_recovered=UNPROVEN stale_callback_fenced=1",
+        receiver, stream, generation, event_seq, status, response_received, applied);
+}
+
+static void native_check_stream_recovery(void *receiver, void *stream,
+        uint32_t generation, uint32_t state_generation, uint32_t now,
+        int cluster_owned) {
+    struct p111_frame_progress_snapshot progress;
+    struct native_slot *slot;
+    unsigned action = 0, attempts = 0;
+    uint32_t seq = 0, age = 0;
+    int eligible, send_rc, live = 0;
+    /* Read before native_lock: the frame producer uses its own tap lock. */
+    if (!p111_frame_tap_get_progress(stream, &progress) || !progress.active)
+        return;
+    native_lock();
+    slot = find_stream_locked(receiver, stream);
+    if (slot && slot->generation == generation &&
+        slot->state_generation == state_generation) {
+        eligible = slot->processing_live && cluster_owned && slot->ui_event_state == 2 &&
+            slot->preconfig_rewritten && slot->config_ok &&
+            slot->first_real_frame_posted && slot->keyframe_event_state != 1 &&
+            slot->view_area_event_state != 1 &&
+            alt_control_fence_is_current(state_generation);
+        action = alt111_recovery_poll(&slot->recovery, now,
+            progress.generation, progress.frame_count, eligible);
+        seq = slot->recovery.command_seq;
+        age = now - slot->recovery.last_progress_at;
+        attempts = slot->recovery.attempts;
+    }
+    native_unlock();
+    if (!action) return;
+    altscreen_log("PHASE=ALT111_RECOVERY_PROGRESS receiver=%p stream=%p generation=%u request_seq=%u flags=%u attempts=%u decoded_frames=%u h264_packets=%u idle_ms=%u fresh_frame=%d budget_exhausted=%d",
+        receiver, stream, generation, seq, action, attempts,
+        progress.frame_count, progress.h264_packets, age / 1000u,
+        !!(action & ALT111_RECOVERY_PROGRESS),
+        !!(action & ALT111_RECOVERY_EXHAUSTED));
+    if (!(action & ALT111_RECOVERY_REQUEST)) return;
+    /* ProcessFrames exit waits for this guard before StopSession; no request
+     * can run on a stopped private session. Native identity and cancellation
+     * are checked again; a synchronous callback only takes native_lock. */
+    recovery_lock();
+    native_lock();
+    slot = find_stream_locked(receiver, stream);
+    live = slot && slot->generation == generation &&
+        slot->state_generation == state_generation && slot->processing_live &&
+        slot->recovery.inflight_seq == seq &&
+        alt_control_fence_is_current(state_generation);
+    native_unlock();
+    send_rc = live ? alt_send_cluster_recovery(receiver, stream, generation, seq) : -1;
+    recovery_unlock();
+    altscreen_log("PHASE=ALT111_RECOVERY_SUBMIT receiver=%p stream=%p generation=%u request_seq=%u attempt=%u event=forceKeyFrame rc=%d live=%d preserve_main110=1 tcp_reconnect=0",
+        receiver, stream, generation, seq, attempts, send_rc, live);
+    if (send_rc != 0)
+        p1404_cockpit_native_recovery_result(receiver, stream, generation,
+            seq, send_rc, 0);
+}
+
 /*
  * This monitor is the same-session bridge between Audi NAV_VIEW_SIZE_CHOICE
  * and CarPlay's standard updateViewArea command.  Java publishes the OEM state;
@@ -1212,7 +1308,7 @@ static void *native_monitor_worker(void *arg) {
 
             if (desired_view_area == 0 || desired_view_area == 1) {
                 if (slot->view_area_target != desired_view_area) {
-                    altscreen_log("PHASE=ALT111_VIEWAREA_TARGET receiver=%p stream=%p generation=%u old=%d new=%d source=/tmp/mmi-mirror-hmi.state gate=LayoutMIB2HighB9 config=%ux%u canvas_gate=%d",
+                    altscreen_log("PHASE=ALT111_VIEWAREA_TARGET receiver=%p stream=%p generation=%u old=%d new=%d source=/tmp/mmi-mirror-hmi.state gate=LayoutMIB2HighB9OrQ7 config=%ux%u canvas_gate=%d",
                                   receiver, stream, generation,
                                   slot->view_area_target, desired_view_area,
                                   slot->config_width, slot->config_height,
@@ -1288,6 +1384,8 @@ static void *native_monitor_worker(void *arg) {
         }
 
         native_check_view_area_fresh_frame(receiver, stream, generation);
+        native_check_stream_recovery(receiver, stream, generation,
+            state_generation, wheel_now, cluster_owned);
 
         if (!zoom_gate &&
             (zoom_target_steps != 0 || zoom_sent_steps != 0 ||

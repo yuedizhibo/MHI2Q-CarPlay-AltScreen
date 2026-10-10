@@ -34,8 +34,8 @@
 /* AltScreen CarPlay cluster video (MHI2Q-CarPlay-AltScreen mirror sidecar): its launcher
  * keeps the demand marker and the sidecar publishes the ready marker after its first
  * present; ScreenModule/AltScreenVideo use the same pair to select ctx 81. */
-#define ALTSCREEN_ACTIVE_MARKER "/tmp/mmi-mirror-active"
-#define ALTSCREEN_READY_MARKER  "/tmp/mmi-mirror-basevideo.ready"
+#define ALTSCREEN_ACTIVE_MARKER "/tmp/mmi-altscreen-active"
+#define ALTSCREEN_READY_MARKER  "/tmp/mmi-altscreen-basevideo.ready"
 #define ALTSCREEN_FPS           15
 /* Our raised priority (see main) would preempt the AltScreen mirror sidecar, which runs
  * at the default 10: while it composed the CarPlay video it lost ~23% of its decoded

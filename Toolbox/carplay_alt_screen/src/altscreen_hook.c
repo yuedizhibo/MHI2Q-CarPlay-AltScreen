@@ -6,6 +6,7 @@
  * close/reuse cannot redirect delayed I/O to a different open file.
  */
 #include "p1404_abi.h"
+#include "p1404_lock_wait.h"
 #include "p1404_airplay.h"
 #include "p1404_iap2.h"
 #include "p1404_private111_backend.h"
@@ -242,11 +243,11 @@ static int bearer_guard_lock(void) {
     return 0;
 }
 static void bearer_guard_lock_wait(void) {
-    while (__sync_lock_test_and_set(&g_bearer_guard_lock, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_bearer_guard_lock, 1u) != 0u) p1404_lock_wait_yield();
 }
 static void bearer_guard_unlock(void) { __sync_lock_release(&g_bearer_guard_lock); }
 static void bearer_tx_lock(void) {
-    while (__sync_lock_test_and_set(&g_bearer_tx_lock, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_bearer_tx_lock, 1u) != 0u) p1404_lock_wait_yield();
 }
 static void bearer_tx_unlock(void) { __sync_lock_release(&g_bearer_tx_lock); }
 static void bearer_set_error(int value) {
@@ -414,6 +415,7 @@ static int bearer_claim(int fd, int candidate, int kind, int flags,
         }
         if (slot && slot->busy) {
             bearer_tx_unlock();
+            p1404_lock_wait_yield();
             continue;
         }
         if (!slot) {

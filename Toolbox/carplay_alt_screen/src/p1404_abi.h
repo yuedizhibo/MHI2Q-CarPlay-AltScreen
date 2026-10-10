@@ -233,6 +233,11 @@ void alt_state_reset(void);
 #define ALT111_EVENT_STOP_UI          3
 #define ALT111_EVENT_UPDATE_VIEW_AREA 4
 #define ALT111_EVENT_ZOOM             5
+#define ALT111_EVENT_RECOVERY_KEYFRAME 6
+int alt_send_cluster_recovery(void *receiver, void *stream,
+                               uint32_t generation, uint32_t event_seq);
+void p1404_cockpit_native_recovery_result(void *receiver, void *stream,
+    uint32_t generation, uint32_t event_seq, int status, int response_received);
 int alt_send_cluster_event(void *receiver, void *stream, uint32_t generation,
                            int event_kind);
 int alt_send_cluster_view_area(void *receiver, void *stream,

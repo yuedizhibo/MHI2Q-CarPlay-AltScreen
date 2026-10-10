@@ -1,4 +1,5 @@
 #include "private111_direct_tap.h"
+#include "p1404_lock_wait.h"
 #include "private111_direct_shm.h"
 
 #include <dlfcn.h>
@@ -67,7 +68,7 @@ static struct p111_avcc_cache g_avcc[P111_AVCC_CACHE_SLOTS];
 static unsigned g_avcc_recycle;
 
 static void tap_lock(void) {
-    while (__sync_lock_test_and_set(&g_tap_lock, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_tap_lock, 1u) != 0u) p1404_lock_wait_yield();
 }
 
 static void tap_unlock(void) {
@@ -1005,7 +1006,7 @@ static struct p111_linearizer_state g_linearizer;
 static volatile unsigned g_linearizer_lock;
 
 static void linearizer_lock(void) {
-    while (__sync_lock_test_and_set(&g_linearizer_lock, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_linearizer_lock, 1u) != 0u) p1404_lock_wait_yield();
 }
 
 static void linearizer_unlock(void) {
@@ -1817,6 +1818,8 @@ int p111_frame_tap_get_progress(
         out->frame_count = g_frame->frame_count;
         out->sequence = g_frame->sequence;
         out->last_publish_us32 = g_last_frame_publish_us32;
+        out->h264_packets = g_h264 && g_h264->active &&
+            g_h264->generation == g_generation ? g_h264->packet_count : 0u;
         out->active = 1;
         ok = 1;
     }

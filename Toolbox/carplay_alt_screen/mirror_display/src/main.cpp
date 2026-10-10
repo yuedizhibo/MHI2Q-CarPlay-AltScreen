@@ -28,27 +28,27 @@ static const char *volatile_path(const char *key, const char *fallback) {
 
 static const char *ready_path() {
     return volatile_path("ALT111_MIRROR_READY_FILE",
-                         "/tmp/MMI-Cockpit-Carplay/mirror/ready");
+                         "/tmp/altscreen_mirror.ready");
 }
 
 static const char *base_ready_path() {
     return volatile_path("ALT111_MIRROR_BASE_READY_FILE",
-                         "/tmp/MMI-Cockpit-Carplay/mirror/basevideo.ready");
+                         "/tmp/mmi-altscreen-basevideo.ready");
 }
 
 static const char *gate_token_path() {
     return volatile_path("ALT111_MIRROR_GATE_TOKEN_FILE",
-                         "/tmp/MMI-Cockpit-Carplay/mirror/phone111.gate");
+                         "/tmp/altscreen_mirror.phone111.gate");
 }
 
 static const char *hook_log_path() {
     return volatile_path("ALT111_MIRROR_HOOK_LOG",
-                         "/tmp/MMI-Cockpit-Carplay/altscreen_hook.log");
+                         "/tmp/altscreen_hook.log");
 }
 
 static const char *displayable_state_path() {
     return volatile_path("ALT111_DISPLAYABLE_STATE_FILE",
-                         "/tmp/mmi-mirror-displayable3.state");
+                         "/tmp/mmi-altscreen-displayable3.state");
 }
 
 static unsigned long long now_us() {

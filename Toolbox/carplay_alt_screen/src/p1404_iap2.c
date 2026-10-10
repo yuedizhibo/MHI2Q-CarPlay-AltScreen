@@ -1,9 +1,11 @@
 /* p1404_iap2.c - Gate 1 plus iAP2 control-plane evidence. See p1404_iap2.h. */
 #include "p1404_iap2.h"
+#include "p1404_lock_wait.h"
 #include "p1404_abi.h"
 #include "altscreen_profile.h"
 #include <string.h>
 #include <stddef.h>
+#include <unistd.h>
 
 static uint16_t be16(const uint8_t *p) { return (uint16_t)(((unsigned)p[0] << 8) | p[1]); }
 static void put_be16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)(v >> 8); p[1] = (uint8_t)v; }
@@ -324,7 +326,7 @@ static struct iap2_control_fd_slot g_control_fds[IAP2_CONTROL_FD_SLOTS];
 static volatile unsigned g_control_fd_guard;
 
 static void control_fd_lock(void) {
-    while (__sync_lock_test_and_set(&g_control_fd_guard, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_control_fd_guard, 1u) != 0u) p1404_lock_wait_yield();
 }
 
 static void control_fd_unlock(void) {
@@ -446,6 +448,7 @@ void iap2_control_fd_close_gen(int fd, uint32_t generation) {
             return;
         }
         control_fd_unlock();
+        p1404_lock_wait_yield();
     }
 }
 
@@ -627,6 +630,7 @@ int iap2_control_fd_prepare_mutation_gen(int fd, uint32_t generation,
         slot = control_fd_find_locked(fd, generation);
         if (!slot || !slot->mutate_busy) break;
         control_fd_unlock();
+        p1404_lock_wait_yield();
     }
     if (!slot) {
         /* A possible sync can start after unrelated prefix bytes, including a
@@ -745,6 +749,7 @@ int iap2_control_fd_prepare_drain_gen(int fd, uint32_t generation,
         slot = control_fd_find_locked(fd, generation);
         if (!slot || !slot->mutate_busy) break;
         control_fd_unlock();
+        p1404_lock_wait_yield();
     }
     if (!slot || slot->mutate_used == 0u) {
         control_fd_unlock();

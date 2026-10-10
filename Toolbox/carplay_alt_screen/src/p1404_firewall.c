@@ -14,6 +14,8 @@ extern void altscreen_log(const char *fmt, ...);
 
 #define PF_CAPTURE_MAX (128u * 1024u)
 #define PF_TRANSACTION_MS 1500u
+#define PF_OPEN_TRANSACTION_MS 3000u
+#define PF_OPEN_HELPER_MS 1500u
 #define PF_REAP_MS 100u
 static volatile unsigned g_pf_guard;
 /* Protected by the same lock as rule mutations. Fixed size, no queue or heap
@@ -46,16 +48,27 @@ static int pf_lock(uint64_t deadline) {
 }
 static void pf_unlock(void) { __sync_lock_release(&g_pf_guard); }
 
-static int line_contains(const char *line, size_t n, const char *token) {
-    size_t i, len = strlen(token);
-    for (i = 0; i + len <= n; ++i)
-        if (!memcmp(line + i, token, len)) return 1;
-    return 0;
+static int pf_token(const char **cursor, const char *end, const char *word) {
+    const char *p = *cursor;
+    size_t len = strlen(word);
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\r')) ++p;
+    if ((size_t)(end - p) < len || memcmp(p, word, len)) return 0;
+    p += len;
+    if (p != end && *p != ' ' && *p != '\t' && *p != '\r') return 0;
+    *cursor = p;
+    return 1;
 }
 static int is_blocker(const char *line, size_t n) {
-    return n >= 5u && !memcmp(line, "block", 5u) &&
-           line_contains(line, n, "in quick on carplay0") &&
-           line_contains(line, n, " all");
+    const char *p = line, *end = line + n;
+    if (!pf_token(&p, end, "block")) return 0;
+    (void)(pf_token(&p, end, "drop") || pf_token(&p, end, "return"));
+    if (!pf_token(&p, end, "in")) return 0;
+    (void)pf_token(&p, end, "quick");
+    if (!pf_token(&p, end, "on") || !pf_token(&p, end, "carplay0")) return 0;
+    /* A family-specific or qualified rule is not an all-family terminal block. */
+    if (!pf_token(&p, end, "all")) return 0;
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\r')) ++p;
+    return p == end;
 }
 
 static int port_token_matches(const char *line, size_t n, const char *prefix, size_t len) {
@@ -86,7 +99,7 @@ int p1404_alt111_firewall_rewrite(const char *rules, uint16_t port, int enable,
                                   char *out, size_t out_cap, int *changed_out) {
     const char *cur, *nl;
     size_t used = 0;
-    int found = 0, blocker = 0, changed = 0;
+    int found = 0, blocker = 0, changed = 0, blocked = 0;
     char rule[192];
     int rule_n;
     if (changed_out) *changed_out = 0;
@@ -96,7 +109,8 @@ int p1404_alt111_firewall_rewrite(const char *rules, uint16_t port, int enable,
         size_t n;
         nl = strchr(cur, '\n');
         n = nl ? (size_t)(nl - cur) : strlen(cur);
-        if (is_our_rule(cur, n, port)) found = 1;
+        if (is_blocker(cur, n)) blocked = 1;
+        if (!blocked && is_our_rule(cur, n, port)) found = 1;
         if (!nl) break;
     }
     if (enable && found) {
@@ -113,7 +127,7 @@ int p1404_alt111_firewall_rewrite(const char *rules, uint16_t port, int enable,
         size_t n;
         nl = strchr(cur, '\n');
         n = nl ? (size_t)(nl - cur) : strlen(cur);
-        if (!enable && is_our_rule(cur, n, port)) {
+        if (is_our_rule(cur, n, port)) {
             changed = 1;
         } else {
             if (enable && !blocker && is_blocker(cur, n)) {
@@ -290,11 +304,14 @@ static int apply_rule(uint16_t port, int enable, struct p1404_pf_lease *lease) {
     FILE *fp = NULL;
     size_t cap;
     int changed = 0, ok = 0, n, saved, write_ok;
-    uint64_t start, deadline;
+    uint64_t start, deadline, command_deadline;
     if (!port || (!enable && lease && !lease->generation)) return 0;
     start = pf_now_ms();
     if (!start) { errno = EIO; return 0; }
-    deadline = start + PF_TRANSACTION_MS;
+    /* Opening needs a read AND a reload. Do not spend the reload's entire
+     * budget waiting for the initial read. Cleanup remains bounded at 1.5s,
+     * after stock audio has stopped. All retries share this absolute deadline. */
+    deadline = start + (enable ? PF_OPEN_TRANSACTION_MS : PF_TRANSACTION_MS);
     if (!pf_lock(deadline)) {
         altscreen_log("ERROR PHASE=ALT111_PF_TRANSACTION port=%u enable=%d stage=lock errno=%d", (unsigned)port, enable, errno);
         return 0;
@@ -312,7 +329,14 @@ static int apply_rule(uint16_t port, int enable, struct p1404_pf_lease *lease) {
         errno = EIO;
         goto done;
     }
-    before = capture_rules(port, deadline);
+    command_deadline = enable ? pf_now_ms() + PF_OPEN_HELPER_MS : deadline;
+    if (command_deadline > deadline) command_deadline = deadline;
+    before = capture_rules(port, command_deadline);
+    if (!before && enable && errno == ETIMEDOUT && !pf_expired(deadline)) {
+        altscreen_log("WARN PHASE=ALT111_PF_OPEN_RECHECK port=%u reason=read_timeout remaining_budget_ms=%llu",
+                      (unsigned)port, (unsigned long long)(deadline - pf_now_ms()));
+        before = capture_rules(port, deadline);
+    }
     if (!before) goto done;
     cap = strlen(before) + 256u;
     after = (char *)malloc(cap);
@@ -335,7 +359,31 @@ static int apply_rule(uint16_t port, int enable, struct p1404_pf_lease *lease) {
         fp = NULL; unlink(path); goto done;
     }
     fp = NULL;
-    if (run_pf(argv, -1, deadline)) ok = 1;
+    command_deadline = enable ? pf_now_ms() + PF_OPEN_HELPER_MS : deadline;
+    if (command_deadline > deadline) command_deadline = deadline;
+    if (run_pf(argv, -1, command_deadline)) ok = 1;
+    else if (enable && errno == ETIMEDOUT && !pf_expired(deadline)) {
+        /* A timed-out helper may already have committed its atomic PF reload.
+         * Read live rules before deciding. Never retry a stale whole-rules
+         * snapshot, advertise an unverified port, or disable the firewall. */
+        char *live;
+        int needs_change = 1;
+        saved = errno;
+        live = capture_rules(port, deadline);
+        if (live) {
+            size_t verify_cap = strlen(live) + 256u;
+            char *verify = (char *)malloc(verify_cap);
+            if (verify && p1404_alt111_firewall_rewrite(live, port, 1,
+                                                       verify, verify_cap, &needs_change) &&
+                !needs_change) {
+                ok = 1;
+                g_pf_stage = "open_verified_after_timeout";
+            }
+            free(verify);
+            free(live);
+        }
+        if (!ok) errno = saved;
+    }
     saved = errno;
     unlink(path);
     errno = saved;

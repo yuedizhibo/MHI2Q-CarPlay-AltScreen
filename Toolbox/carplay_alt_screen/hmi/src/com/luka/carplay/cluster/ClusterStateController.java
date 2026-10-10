@@ -69,12 +69,12 @@ public final class ClusterStateController {
     private static final int OEM_SCREEN_LAYOUT_ROW = 1;
     private static final int OEM_REQUIRED_COLUMN_COUNT = 28;
     private static final int OEM_MISSING = Integer.MIN_VALUE;
-    private static final String BASEVIDEO_ACTIVE_FILE = "/tmp/mmi-mirror-active";
-    private static final String BASEVIDEO_READY_FILE = "/tmp/mmi-mirror-basevideo.ready";
+    private static final String BASEVIDEO_ACTIVE_FILE = "/tmp/mmi-altscreen-active";
+    private static final String BASEVIDEO_READY_FILE = "/tmp/mmi-altscreen-basevideo.ready";
     private static final String DISPLAYABLE3_STATE_FILE =
-        "/tmp/mmi-mirror-displayable3.state";
+        "/tmp/mmi-altscreen-displayable3.state";
     private static final String CONTEXT_MODE_FILE = "/tmp/mmi-mirror-context.mode";
-    private static final String STARTED_FILE = "/tmp/mmi-mirror-controller.started";
+    private static final String STARTED_FILE = "/tmp/mmi-altscreen-controller.started";
     private static final String DIAG_FILE = "/tmp/mmi-mirror-controller.log";
     private static final String MODE_JAVA80 = "JAVA80";
 

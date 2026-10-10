@@ -14,6 +14,7 @@ void altscreen_mark_phone_requested_legacy(void);
 #define alt_find_stream_descriptor alt_find_stream_descriptor_legacy
 #define AirPlayReceiverSessionPlatformControl AirPlayReceiverSessionPlatformControl_legacy
 #include "p1404_airplay.c"
+#include "p1404_lock_wait.h"
 #undef AirPlayReceiverSessionPlatformControl
 #undef alt_find_stream_descriptor
 #undef altscreen_mark_phone_requested
@@ -59,11 +60,12 @@ static unsigned fullchain_teardown_scope(const void *params, int *out_full) {
     return scope;
 }
 
-static struct { void *receiver; int main_ready, sent; } bootstrap[8];
+static struct { void *receiver; int main_ready, sent, pending; uint32_t token; } bootstrap[8];
 static volatile unsigned bootstrap_guard;
+static uint32_t bootstrap_token;
 
 static void bootstrap_lock(void) {
-    while (__sync_lock_test_and_set(&bootstrap_guard, 1u)) { }
+    while (__sync_lock_test_and_set(&bootstrap_guard, 1u)) p1404_lock_wait_yield();
 }
 static void bootstrap_forget(void *receiver) {
     unsigned i;
@@ -74,6 +76,8 @@ static void bootstrap_forget(void *receiver) {
 }
 static void bootstrap_note(void *receiver, int main_ready) {
     unsigned i,slot=8;
+    uint32_t token=0;
+    int submit=0, deferred=0, rc;
     void *event_client=NULL;
     if (!receiver) return;
     bootstrap_lock();
@@ -82,18 +86,41 @@ static void bootstrap_note(void *receiver, int main_ready) {
         if (!bootstrap[i].receiver && slot==8) slot=i;
     }
     if (slot<8) {
+        if (!bootstrap[slot].receiver) {
+            if (bootstrap_token == UINT32_MAX) {
+                __sync_lock_release(&bootstrap_guard);
+                altscreen_log("ERROR PHASE=ALT111_REQUEST_DEFERRED receiver=%p reason=bootstrap_identity_exhausted",receiver);
+                return;
+            }
+            bootstrap[slot].token=++bootstrap_token;
+        }
         bootstrap[slot].receiver=receiver;
         if (main_ready) bootstrap[slot].main_ready=1;
         /* Exact stock SendCommand checks receiver+0x2c0. SessionStart creates
          * it from the accepted event socket. Main SETUP alone is insufficient. */
         memcpy(&event_client,(const unsigned char *)receiver+0x2c0,sizeof(event_client));
-        if (bootstrap[slot].main_ready && event_client && !bootstrap[slot].sent) {
-            bootstrap[slot].sent=alt_request_cluster_after_main(receiver)==0;
+        if (bootstrap[slot].main_ready && event_client &&
+            !bootstrap[slot].sent && !bootstrap[slot].pending) {
+            bootstrap[slot].pending=1;
+            token=bootstrap[slot].token;
+            submit=1;
         } else if (bootstrap[slot].main_ready && !event_client) {
-            altscreen_log("PHASE=ALT111_REQUEST_DEFERRED receiver=%p reason=event_channel_not_started waiting=SessionStart",receiver);
+            deferred=1;
         }
-    } else {
+    }
+    __sync_lock_release(&bootstrap_guard);
+    /* Stock submission may block or synchronously reenter teardown. Reserve
+     * under the metadata lock; submit outside it and validate identity after. */
+    if (slot==8)
         altscreen_log("ERROR PHASE=ALT111_REQUEST_DEFERRED receiver=%p reason=bootstrap_slots_full",receiver);
+    if (deferred)
+        altscreen_log("PHASE=ALT111_REQUEST_DEFERRED receiver=%p reason=event_channel_not_started waiting=SessionStart",receiver);
+    if (!submit) return;
+    rc=alt_request_cluster_after_main(receiver);
+    bootstrap_lock();
+    if (bootstrap[slot].receiver==receiver && bootstrap[slot].token==token) {
+        bootstrap[slot].pending=0;
+        bootstrap[slot].sent=(rc==0);
     }
     __sync_lock_release(&bootstrap_guard);
 }
@@ -207,7 +234,7 @@ void AirPlayReceiverSessionTearDown(void *session, const void *params,
      * waiting on ancillary PF helpers, retaining lifecycle serialization. */
     alt_private111_finish_cleanup(&after_stock_cleanup);
     if (out_done) *out_done = stock_done;
-    altscreen_log("PHASE=TEARDOWN_OUTER receiver=%p stock_called=1 reason=%d done=%d scope=%u",session,reason,out_done?(int)*out_done:-1,scope);
+    altscreen_log("PHASE=TEARDOWN_OUTER receiver=%p stock_called=1 reason=%d done=%d scope=%u",session,reason,(int)stock_done,scope);
     fullchain_lifecycle_leave(session, &lease, full && stock_done);
 }
 

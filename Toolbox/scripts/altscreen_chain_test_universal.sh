@@ -726,9 +726,12 @@ cmd_collect(){
         "$(p /tmp/MMI-Cockpit-Carplay.boot_entry.log)" \
         "$(p /tmp/MMI-Cockpit-Carplay/mirror/autostart.log)" \
         "$(p /tmp/mmi-mirror-controller.log)" \
-        "$(p /tmp/mmi-mirror-controller.started)" \
-        "$(p /tmp/mmi-mirror-active)" \
-        "$(p /tmp/mmi-mirror-basevideo.ready)"; do
+        "$(p /tmp/mmi-altscreen-controller.started)" \
+        "$(p /tmp/mmi-altscreen-active)" \
+        "$(p /tmp/mmi-altscreen-displayable3.state)" \
+        "$(p /tmp/mmi-altscreen-displayable3.state.tmp)" \
+        "$(p /tmp)"/mmi-altscreen-displayable3.state.tmp.* \
+        "$(p /tmp/mmi-altscreen-basevideo.ready)"; do
         if [ -f "$candidate" ]; then
             echo "LOG_BEGIN $candidate"; tail -c 1048576 "$candidate" 2>/dev/null || true; echo "LOG_END $candidate"
         fi

@@ -1,5 +1,7 @@
 /* p1404_control_fence.c - explicit serialization/cancellation for private111. */
 #include "p1404_control_fence.h"
+#include "p1404_lock_wait.h"
+#include <unistd.h>
 
 static volatile int g_fence_guard;
 static uint32_t g_fence_generation;
@@ -8,9 +10,7 @@ static void fence_lock(void) {
     /* Control-plane only: never used on the video hot path. A held lock means a
      * bounded private SETUP commit/teardown is in progress, so waiting preserves
      * a strict total order instead of guessing the stock thread model. */
-    while (__sync_lock_test_and_set(&g_fence_guard, 1)) {
-        while (g_fence_guard) { }
-    }
+    while (__sync_lock_test_and_set(&g_fence_guard, 1)) p1404_lock_wait_yield();
 }
 
 static uint32_t next_generation_locked(void) {

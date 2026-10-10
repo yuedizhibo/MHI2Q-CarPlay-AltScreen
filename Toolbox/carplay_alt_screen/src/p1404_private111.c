@@ -1,5 +1,6 @@
 /* p1404_private111.c - ABI-neutral private stream111 transaction orchestration. */
 #include "p1404_private111.h"
+#include "p1404_lock_wait.h"
 #include "p1404_abi.h"
 #include "p1404_airplay.h"
 #include "altscreen_state_private.h"
@@ -7,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 
 static struct alt_private111_backend g_backend;
 static int g_backend_ready;
@@ -21,7 +23,7 @@ static struct alt111_pending_txn g_pending[ALT111_PENDING_SLOTS];
 static volatile unsigned g_pending_guard;
 
 static void pending_lock(void) {
-    while (__sync_lock_test_and_set(&g_pending_guard, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_pending_guard, 1u) != 0u) p1404_lock_wait_yield();
 }
 static void pending_unlock(void) {
     __sync_lock_release(&g_pending_guard);

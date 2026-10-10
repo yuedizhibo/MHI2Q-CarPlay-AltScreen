@@ -13,6 +13,7 @@
  * helper call shapes, Main/delegate isolation and generation/cancel ordering.
  */
 #include "p1404_private111_backend.h"
+#include "p1404_lock_wait.h"
 #include "p1404_private111.h"
 #include "p1404_airplay.h"
 #include "p1404_abi.h"
@@ -24,6 +25,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 #include "dlfcn.h"
 
 #define SCREEN_SESSION_CTR_ACTIVE_OFF          0x1e4u
@@ -154,6 +156,7 @@ struct alt111_pair {
     uint64_t connection_id;
     p1404_pthread_t thread;
     int worker_started;
+    int worker_starting;
     int worker_done;
     int stop_requested;
     int session_stopped;
@@ -166,7 +169,7 @@ static struct alt111_pair g_pairs[ALT111_PAIR_SLOTS];
 static volatile unsigned g_pairs_guard;
 
 static void pairs_lock(void) {
-    while (__sync_lock_test_and_set(&g_pairs_guard, 1u) != 0u) { }
+    while (__sync_lock_test_and_set(&g_pairs_guard, 1u) != 0u) p1404_lock_wait_yield();
 }
 static void pairs_unlock(void) {
     __sync_lock_release(&g_pairs_guard);
@@ -307,10 +310,21 @@ static int pair_request_stop_snapshot(void *receiver, void *session,
                                       uint16_t *port_out) {
     struct alt111_pair *p;
     int found = 0;
-    pairs_lock();
-    p = pair_find_locked(session);
-    if (p && p->receiver == receiver) {
+    for (;;) {
+        pairs_lock();
+        p = pair_find_locked(session);
+        if (!p || p->receiver != receiver) {
+            pairs_unlock();
+            return 0;
+        }
         p->stop_requested = 1;
+        if (!p->worker_starting) break;
+        /* Creation must publish a valid handle before teardown joins/deletes.
+         * Let both creator and child run while that publication is pending. */
+        pairs_unlock();
+        p1404_lock_wait_yield();
+    }
+    {
         if (worker_started_out) *worker_started_out = p->worker_started;
         if (worker_done_out) *worker_done_out = p->worker_done;
         if (thread_out) *thread_out = p->thread;
@@ -833,10 +847,12 @@ static void *private111_worker(void *arg) {
     altscreen_log("PHASE=STREAM_111_PROCESSFRAMES_BEGIN receiver=%p id=%u generation=%u session=%p stream=%p net=%p timeout_s=%d",
                   receiver, state_id, generation, session, stream, net_socket,
                   process_timeout_seconds);
+    p1404_cockpit_native_processing(receiver, stream, 1);
     rc = be.process_frames(session, net_socket, process_timeout_seconds);
     /* Freeze the exit reason before StopSession/detach can trigger teardown.
      * A later stop request must not turn a transport failure into normal DONE. */
     process_stop_requested = pair_stop_requested(p);
+    p1404_cockpit_native_processing(receiver, stream, 0);
     altscreen_log("PHASE=STREAM_111_PROCESSFRAMES_RETURN receiver=%p id=%u generation=%u session=%p stream=%p rc=%d stop_requested=%d",
                   receiver, state_id, generation, session, stream, rc,
                   process_stop_requested);
@@ -895,18 +911,20 @@ static int start_accept_worker(void *receiver, void *session) {
 
     pairs_lock();
     p = pair_find_locked(session);
-    if (!p || p->receiver != receiver || p->worker_started || p->listen_fd < 0 ||
+    if (!p || p->receiver != receiver || p->worker_started || p->worker_starting || p->stop_requested || p->listen_fd < 0 ||
         p->phase != ALT111_W_PREPARED) {
         pairs_unlock();
         return 0;
     }
     p->phase = ALT111_W_ACCEPTING;
 
-    /* Keep the pair lock through pthread_create and handle publication. The new
-     * worker begins by taking this same lock, so it cannot run against an
-     * unpublished thread handle; concurrent teardown cannot observe
-     * worker_started=1 with thread=0 and attempt an invalid join. */
+    p->worker_starting = 1;
+    pairs_unlock();
+    /* A new worker immediately takes pairs_lock. Never hold it over creation;
+     * worker_starting protects the pair until the parent publishes its handle. */
     rc = be.pthread_create_fn(&thread, NULL, private111_worker, p);
+    pairs_lock();
+    p->worker_starting = 0;
     if (rc != 0) {
         p->phase = ALT111_W_PREPARED;
         pairs_unlock();

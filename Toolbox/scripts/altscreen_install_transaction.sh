@@ -530,6 +530,35 @@ recover_stale || fail "previous install transaction could not be recovered"
 [ -f "$INSTALLER" ] || fail "installer missing"
 sh -n "$INSTALLER" || fail "installer shell syntax invalid"
 
+
+# Independent Mirror and AltScreen own the same physical cluster display.
+# Check live process arguments, never a lone stale marker. Do not kill or
+# uninstall another package; refuse before changing our production state.
+altscreen_display_precheck() {
+    if ! command -v pidin >/dev/null 2>&1; then
+        echo "DISPLAY_PRECHECK=UNAVAILABLE reason=pidin_missing" >&2
+        return 0
+    fi
+    alts_display_processes=$(pidin ar 2>/dev/null) || {
+        echo "DISPLAY_PRECHECK=FAILED reason=process_inventory_unavailable" >&2
+        return 1
+    }
+    alts_display_conflicts=$(printf '%s\n' "$alts_display_processes" | awk '
+      /(^|[\/[:space:]])mmi_mirror_supervisor\.sh([[:space:]]|$)/ ||
+      /(^|[\/[:space:]])stop_mmi_mirror_toolbox\.sh([[:space:]]|$)/ {
+        print
+      }')
+    if [ -n "$alts_display_conflicts" ]; then
+        echo "DISPLAY_PRECHECK=REFUSED reason=EXTERNAL_MIRROR_RUNNING production_changed=NO" >&2
+        printf '%s\n' "$alts_display_conflicts" >&2
+        echo "Stop the separate Mirror package before starting or installing AltScreen." >&2
+        return 1
+    fi
+    return 0
+}
+
+altscreen_display_precheck || fail "external display owner check failed"
+
 snapshot || { rm -rf "$TXN" 2>/dev/null || true; TXN_READY=0; fail "pre-install transaction snapshot failed"; }
 touch "$TXN/APPLYING" || fail "cannot mark install transaction APPLYING"
 

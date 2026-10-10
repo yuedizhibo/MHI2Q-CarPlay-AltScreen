@@ -38,9 +38,9 @@ RUNTIME="$DEVICE_ROOT/mnt/app/root/carplay-altscreen"
 TXN_DIR="$VOLUME/MMI-Cockpit-Carplay/staging/restore-apply"
 ENABLED="$RUNTIME/state/basevideo3.enabled"
 JAR="$DEVICE_ROOT/mnt/app/eso/hmi/lsd/jars/carplay_hook.jar"
-ACTIVE="$DEVICE_ROOT/tmp/mmi-mirror-active"
-READY="$DEVICE_ROOT/tmp/mmi-mirror-basevideo.ready"
-STARTED="$DEVICE_ROOT/tmp/mmi-mirror-controller.started"
+ACTIVE="$DEVICE_ROOT/tmp/mmi-altscreen-active"
+READY="$DEVICE_ROOT/tmp/mmi-altscreen-basevideo.ready"
+STARTED="$DEVICE_ROOT/tmp/mmi-altscreen-controller.started"
 MIRROR_STOP="$RUNTIME/bin/mirror/stop_vehicle.sh"
 
 mount_app_rw(){ [ "$TESTING" = 1 ] || mount -uw /mnt/app; }

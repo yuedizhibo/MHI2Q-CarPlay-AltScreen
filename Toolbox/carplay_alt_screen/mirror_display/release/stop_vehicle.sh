@@ -57,7 +57,9 @@ stop_pidfile "$WATCH_PIDFILE" 3
 stop_pidfile "$PIDFILE" 30
 
 rm -f "$TMP_ROOT/altscreen_mirror.ready" \
-      "$TMP_ROOT/mmi-mirror-basevideo.ready" \
+      "${ALT111_JAVA_BASE_READY_FILE:-$TMP_ROOT/mmi-altscreen-basevideo.ready}" \
+      "${ALT111_MIRROR_ACTIVE_FILE:-$TMP_ROOT/mmi-altscreen-active}" \
+      "${ALT111_DISPLAYABLE_STATE_FILE:-$TMP_ROOT/mmi-altscreen-displayable3.state}" \
       "$TMP_ROOT/altscreen_stream_supervisor.active" 2>/dev/null || true
 rmdir "$RECOVERY_LOCK" 2>/dev/null || true
 

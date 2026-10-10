@@ -1,4 +1,4 @@
-# MIB2 Toolbox — CarPlay AltScreen V3.7Fix1
+# MIB2 Toolbox — CarPlay AltScreen V3.7Fix3
 
 **English** | [简体中文](README.md)
 
@@ -6,7 +6,7 @@ This project is designed for the Audi **MHI2Q** platform and displays the **nati
 
 **V3.7 update: full RGI navigation-data integration is now available (built on [Luka's mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi)), color conversion for the secondary display now runs on the GPU, cutting whole-system CPU usage from about 80% to about 20%, the runtime watermark has been removed, and starting with V3.7 the whole project is open source under GPL-3.0.**
 
-**V3.7Fix1 update: the green menu now offers two install modes, `INSTALL WITH RGI` and `INSTALL NO RGI`; fixes RGI arrows and distance progress not updating and state publishing failures; the cluster map no longer overlays the ETA.**
+**V3.7Fix3 update: `INSTALL WITH RGI` / `INSTALL NO RGI` now install and enable in one step with a single reboot, removing an old version automatically; fixes the false `Another INSTALL / RESTORE is still running` error during install; fixes race conditions between secondary-display connect and exit, and requests recovery automatically when no new frames arrive for a long time; adds safe-area detection for the Q7 cluster layout.**
 
 > [!NOTE]
 > **Sister project: MMI Mirror**  
@@ -268,6 +268,8 @@ Customization
 └─ MMI-Cockpit-Carplay
 ```
 
+   Check that the menu header shows **`Version: V3.7Fix3`**. If it still shows an older version, the menu and scripts on the head unit are still the old ones, and `INSTALL` would run the old installer; run `Update Toolbox` again and continue only once the version is correct.
+
 5. If you still see:
 
 ```text
@@ -376,7 +378,7 @@ Current recommended version:
 
 ~~~text
 main
-└── AUG22 / V3.7Fix1
+└── AUG22 / V3.7Fix3
     ├── China-region (CN) firmware: vehicle-tested and working
     └── Other regional firmware: may have unknown bugs; not guaranteed to work 100%
 ~~~
@@ -385,8 +387,20 @@ The current public release prioritizes stable installation, normal use, and reli
 
 ### Changelog
 
-**Install flow improvements (in development, pending vehicle validation)**
+**V3.7Fix3**
 
+- Fixed race conditions between secondary-display connect, exit, and routing tasks: the secondary-display request and receiver-thread creation moved out of the metadata lock, and stopping waits for the thread handle to be published before cleanup; a failed stale routing task no longer clears a new session's pending state.
+- When an active secondary-display session gets no new frames for a long time, a bounded number of key-frame requests are sent, and recovery is confirmed only by a new video frame.
+- Supports both quick and non-quick firewall block rules; after a helper command times out, the actual rule state is checked instead of reporting an unconfirmed port as open.
+- Temporary state is isolated from the sister project MMI Mirror; install and start check whether an external display is in use, and restore keeps the other project's state.
+- Added safe-area detection for the Q7 cluster layout; the green-menu version label is now `V3.7Fix3`.
+
+**V3.7Fix2**
+
+- Fixed V3.7Fix1 failing at step 1 with a false `Another INSTALL / RESTORE is still running`; the operation lock now uses process identity, liveness, and child tasks, and correctly handles stale locks and PID reuse.
+- Fixed directory locks and file renames failing on QNX where `/tmp` points to `/dev/shmem`; these locks and state files now live on the RAM disk.
+- The package and scripts are checked before installing, and a failed check leaves the existing installation untouched; install, uninstall, and restore transactions persist their state and roll back more reliably.
+- Changed the cleanup order when the secondary display stops: the video session is stopped and its threads exit first, then the stock audio stop and firewall cleanup run.
 - `INSTALL WITH RGI` / `INSTALL NO RGI` now install and enable in one step, so only one reboot is needed; `START` was removed from the menu.
 - An old version is detected and removed automatically (full, verified restore) before installing; switching install modes no longer needs a manual restore.
 - Install, restore, and `STORE LOGS + RESTORE` progress is shown live instead of all at once at the end.

@@ -95,7 +95,7 @@ static void cleanup_partial(void *receiver, void *alt_session, void *alt_stream,
     int td = 1;
     if (private_response && g_backend.release_object) g_backend.release_object(private_response);
     if ((alt_session || alt_stream) && g_backend.teardown_private)
-        td = g_backend.teardown_private(receiver, alt_session, alt_stream);
+        td = g_backend.teardown_private(receiver, alt_session, alt_stream, NULL);
     altscreen_log("PHASE=STREAM_111_ABORT receiver=%p alt_session=%p alt_stream=%p teardown_ok=%d reason=%s stock110_untouched=1 state_mapping=%s",
                   receiver, alt_session, alt_stream, td, why ? why : "-",
                   td ? "cleared" : "retained_for_safe_retry");
@@ -243,7 +243,8 @@ void alt_private111_release_prepared(const void *stock_request, int owned) {
         alt_airplay_release_object((void *)stock_request);
 }
 
-static int teardown_locked(void *receiver_session, const char *reason);
+static int teardown_locked(void *receiver_session, const char *reason,
+                           struct p1404_pf_lease *after_stock_cleanup);
 
 static int finish_duplicate(void *receiver_session, const void *alt_descriptor,
                             void *stock_response, const struct altscreen_ctx *c) {
@@ -259,14 +260,14 @@ static int finish_duplicate(void *receiver_session, const void *alt_descriptor,
         altscreen_log("WARN PHASE=STREAM_111_DUPLICATE_RESPONSE receiver=%p id=%u generation=%u rc=%d response=%p teardown_existing=1 recreate_current_generation=1",
                       receiver_session, c->id, c->generation, rc, private_response);
         if (private_response) g_backend.release_object(private_response);
-        teardown_ok = teardown_locked(receiver_session, "duplicate_response_failed_recreate");
+        teardown_ok = teardown_locked(receiver_session, "duplicate_response_failed_recreate", NULL);
         return teardown_ok ? 2 : ALT111_FINISH_FAIL_OPEN;
     }
     if (!g_backend.merge_private_response(stock_response, private_response)) {
         altscreen_log("ERROR PHASE=STREAM_111_DUPLICATE_MERGE receiver=%p id=%u generation=%u response=%p teardown_existing=1",
                       receiver_session, c->id, c->generation, private_response);
         g_backend.release_object(private_response);
-        teardown_locked(receiver_session, "duplicate_merge_failed");
+        teardown_locked(receiver_session, "duplicate_merge_failed", NULL);
         return ALT111_FINISH_FAIL_OPEN;
     }
     g_backend.release_object(private_response);
@@ -525,7 +526,8 @@ int alt_private111_finish_setup(void *receiver_session,
     return rc;
 }
 
-static int teardown_locked(void *receiver_session, const char *reason) {
+static int teardown_locked(void *receiver_session, const char *reason,
+                           struct p1404_pf_lease *after_stock_cleanup) {
     struct altscreen_ctx snap;
     int ok = 1;
     memset(&snap, 0, sizeof(snap));
@@ -541,7 +543,7 @@ static int teardown_locked(void *receiver_session, const char *reason) {
                           receiver_session, snap.id, snap.generation);
         } else {
             ok = g_backend.teardown_private(receiver_session, snap.alt_screen_session,
-                                            snap.alt_screen_stream);
+                                            snap.alt_screen_stream, after_stock_cleanup);
             if (!ok)
                 altscreen_log("ERROR PHASE=STREAM_111_TEARDOWN receiver=%p id=%u generation=%u backend=%s teardown_failed=1 mapping_will_clear=1",
                               receiver_session, snap.id, snap.generation, g_backend.name);
@@ -556,9 +558,11 @@ static int teardown_locked(void *receiver_session, const char *reason) {
     return ok;
 }
 
-int alt_private111_teardown(void *receiver_session, const char *reason) {
+int alt_private111_teardown_deferred(void *receiver_session, const char *reason,
+                                    struct p1404_pf_lease *after_stock_cleanup) {
     uint32_t generation;
     int ok;
+    if (after_stock_cleanup) memset(after_stock_cleanup, 0, sizeof(*after_stock_cleanup));
     if (!receiver_session) return 1;
 
     /* cancel_and_lock establishes a total order with finish_setup: either an
@@ -568,7 +572,24 @@ int alt_private111_teardown(void *receiver_session, const char *reason) {
     pending_cancel_receiver(receiver_session);
     altscreen_log("PHASE=STREAM_111_FENCE_CANCEL receiver=%p generation=%u reason=%s serialized=1",
                   receiver_session, generation, reason ? reason : "-");
-    ok = teardown_locked(receiver_session, reason);
+    ok = teardown_locked(receiver_session, reason, after_stock_cleanup);
     alt_control_fence_unlock();
     return ok;
+}
+
+int alt_private111_teardown(void *receiver_session, const char *reason) {
+    return alt_private111_teardown_deferred(receiver_session, reason, NULL);
+}
+
+void alt_private111_finish_cleanup(struct p1404_pf_lease *cleanup) {
+    struct p1404_pf_lease owned;
+    int ok;
+    if (!cleanup || !cleanup->generation) return;
+    owned = *cleanup;
+    memset(cleanup, 0, sizeof(*cleanup));
+    altscreen_log("PHASE=STREAM_111_FIREWALL_REMOVE_BEGIN port=%u generation=%u after_stock_audio=1 bounded_ms=1500",
+                  (unsigned)owned.port, owned.generation);
+    ok = p1404_alt111_firewall_close_owned(&owned);
+    altscreen_log("%s PHASE=STREAM_111_FIREWALL_REMOVE port=%u generation=%u after_stock_audio=1 result=%s core_teardown_preserved=1",
+                  ok ? "INFO" : "WARN", (unsigned)owned.port, owned.generation, ok ? "OK" : "FAILED");
 }

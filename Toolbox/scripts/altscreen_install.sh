@@ -114,16 +114,10 @@ fail_and_restore() {
     reason=$1
     alts_ui "      Removing the partial installation..."
     if run_restore; then
-        if [ -n "$OLD" ]; then
-            finish FAILED 1 "$reason" \
-                "All changes were removed; the head unit is stock." \
-                "Fully reboot the head unit before using CarPlay," \
-                "then check the log and run INSTALL again."
-        fi
         finish FAILED 1 "$reason" \
-            "All changes were removed; the head unit is stock." \
-            "No reboot needed. Check the log, then run" \
-            "INSTALL again."
+            "The pre-install configuration was restored." \
+            "Fully reboot the head unit before using CarPlay," \
+            "then check the log and run INSTALL again."
     fi
     finish FAILED 1 "$reason" \
         "Automatic removal ALSO failed." \
@@ -140,9 +134,9 @@ alts_ui_header \
 # ---------------------------------------------------------------- step 1
 step "Checking package and firmware"
 alts_ui_lock "$ROOT/tmp" || finish FAILED 1 \
-    "Another INSTALL / RESTORE is still running." \
-    "Nothing was changed. Wait for its RESULT, then" \
-    "try again."
+    "$ALTS_UI_LOCK_MESSAGE" \
+    "$ALTS_UI_LOCK_DETAIL" \
+    "Nothing was changed. Check the log before retrying."
 [ "$SD_OK" = 1 ] || finish FAILED 1 \
     "The SD card is not writable." \
     "Nothing was changed. Check the card (FAT32," \
@@ -169,6 +163,14 @@ do
         "Nothing was changed. Copy the full Toolbox folder" \
         "to the SD card again."
 done
+
+if ! ALTS_OPLOG_CAPTURED=1 ALTS_PACKAGE_PREFLIGHT=1 \
+     alts_ui_run /bin/sh "$SCRIPTS/install_mmi_cockpit_carplay_rx.sh"; then
+    finish FAILED 1 \
+        "The package is incomplete or its scripts are invalid." \
+        "The previous installation was not removed." \
+        "Copy the full Toolbox folder to the SD card again."
+fi
 
 TRAIN=""
 for rel in /net/rcc/dev/shmem/version.txt /dev/shmem/version.txt /net/mmx/dev/shmem/version.txt; do

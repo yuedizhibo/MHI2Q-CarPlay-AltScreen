@@ -70,9 +70,9 @@ if [ "${ALTS_OPLOG_CAPTURED:-0}" != 1 ]; then
     fi
     if ! alts_ui_lock "$journal_root/tmp"; then
         alts_ui_result "FAILED" \
-            "Another INSTALL / RESTORE is still running." \
-            "Nothing was changed. Wait for its RESULT, then" \
-            "try again."
+            "$ALTS_UI_LOCK_MESSAGE" \
+            "$ALTS_UI_LOCK_DETAIL" \
+            "Nothing was changed. Check the log before retrying."
         alts_ui_close_log 1
         exit 1
     fi

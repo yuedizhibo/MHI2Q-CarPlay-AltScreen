@@ -1,6 +1,7 @@
 /* p1404_private111.h - ABI-neutral one-shot private stream111 transaction. */
 #ifndef P1404_PRIVATE111_H
 #define P1404_PRIVATE111_H
+#include "p1404_firewall.h"
 
 #define ALT111_PREP_BLOCKED     (-1)
 #define ALT111_PREP_PASSTHROUGH   0
@@ -79,7 +80,8 @@ struct alt_private111_backend {
      * being NULL in the two-phase pre-accept state. */
     int (*teardown_private)(void *receiver_session,
                             void *alt_screen_session,
-                            void *alt_screen_stream);
+                            void *alt_screen_stream,
+                            struct p1404_pf_lease *after_stock_cleanup);
 };
 
 int  alt_private111_install_backend(const struct alt_private111_backend *backend);
@@ -105,5 +107,11 @@ int  alt_private111_finish_setup(void *receiver_session,
                                  int stock_rc,
                                  void *stock_response);
 int  alt_private111_teardown(void *receiver_session, const char *reason);
+/* Mandatory worker/session destruction first; value-only PF cleanup afterward.
+ * Caller must finish cleanup after stock audio teardown, before leaving its
+ * receiver lifecycle lease. Other rollback paths use synchronous teardown. */
+int  alt_private111_teardown_deferred(void *receiver_session, const char *reason,
+                                     struct p1404_pf_lease *after_stock_cleanup);
+void alt_private111_finish_cleanup(struct p1404_pf_lease *cleanup);
 
 #endif

@@ -1,4 +1,22 @@
 #!/bin/sh
+# QNX /tmp can be a process-manager link to /dev/shmem. That namespace
+# supports flat files, but neither mkdir nor atomic rename. Use the boot-local
+# QNX4 ramdisk for directory locks and atomically replaced metadata. Never fall
+# back to a second lock namespace: all contenders must use the same path.
+alts_posix_tmp_dir() (
+    alts_storage_input=$1
+    alts_storage_physical=$(CDPATH= cd "$alts_storage_input" 2>/dev/null && pwd -P) || alts_storage_physical=""
+    case "$alts_storage_physical" in
+        */dev/shmem) printf '%s/ramdisk/var/run\n' "${alts_storage_physical%/dev/shmem}"; return 0 ;;
+    esac
+    case "$alts_storage_input" in /tmp|/dev/shmem)
+        if [ "$(uname -s 2>/dev/null)" = QNX ]; then
+            printf '%s\n' /ramdisk/var/run; return 0
+        fi ;;
+    esac
+    printf '%s\n' "$alts_storage_input"
+)
+
 # Independent boot observer: never loads, restarts, or arms CarPlay.
 set -u
 
@@ -170,11 +188,15 @@ run_flat_plaintext() {
     FLAT_PREFIX="$ROOT/tmp/altscreen_diag_$$"
     ensure_dirs "$FLAT_DEST/streams" 2>/dev/null || return 0
 
-    # Cursor state is deliberately flat and volatile. It survives only an
+    # Cursor state is volatile and published on a filesystem with rename. It survives only an
     # observer-process restart in the current boot, so a real reboot starts at
     # offset zero even when the vehicle clock is still 1970 and PIDs repeat.
     # This also avoids periodic cursor metadata writes to the SD card.
-    CURSOR_PREFIX="$ROOT/tmp/altscreen_diag_cursor"
+    cursor_dir=$(alts_posix_tmp_dir "$ROOT/tmp")
+    CURSOR_PREFIX="$cursor_dir/altscreen_diag_cursor"
+    if ! ensure_dirs "$cursor_dir"; then
+        echo "WARN: diagnostic cursor storage unavailable: $cursor_dir; collection continues"
+    fi
 
     # START/controller wrappers may have emitted a flat /tmp journal before the
     # SD card became writable. Promote those breadcrumbs now, without requiring
@@ -192,7 +214,7 @@ run_flat_plaintext() {
             fi
         done
     fi
-    flat_log_event "BOOT_BEGIN storage=FLAT_TMP_PLAINTEXT_SD volume=$VOLUME cursor_scope=VOLATILE_BOOT_FLAT cursor_resume=1"
+    flat_log_event "BOOT_BEGIN storage=FLAT_TMP_PLAINTEXT_SD volume=$VOLUME cursor_scope=VOLATILE_BOOT_POSIX cursor_resume=1 cursor_dir=$cursor_dir"
     flat_log_event "SD_READY volume=$VOLUME"
     flat_system="${FLAT_PREFIX}_system.raw"; flat_slog_pid=""
     if command -v sloginfo >/dev/null 2>&1; then

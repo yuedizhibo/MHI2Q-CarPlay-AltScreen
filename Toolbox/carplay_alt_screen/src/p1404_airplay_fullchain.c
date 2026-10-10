@@ -165,6 +165,7 @@ int AirPlayReceiverSessionStart(void *session, const void *params) {
 void AirPlayReceiverSessionTearDown(void *session, const void *params,
                                   int reason, unsigned char *out_done) {
     struct alt_session_lease lease;
+    struct p1404_pf_lease after_stock_cleanup = {0, 0};
     unsigned scope;
     unsigned char stock_done = 0;
     int full = 0;
@@ -195,13 +196,16 @@ void AirPlayReceiverSessionTearDown(void *session, const void *params,
     /* Always cancel a pending 111 transaction on full/111 teardown, even before
      * it has installed a state mapping. Audio/Main-only changes preserve it. */
     if ((scope & TEARDOWN_ALT) &&
-        !alt_private111_teardown(session, "outer_session_teardown")) {
+        !alt_private111_teardown_deferred(session, "outer_session_teardown", &after_stock_cleanup)) {
         if (out_done) *out_done = 0;
         altscreen_log("ERROR PHASE=TEARDOWN_OUTER receiver=%p private_cleanup_failed=1 stock_not_called=1 receiver_held_by_backend=1", session);
         fullchain_lifecycle_leave(session, &lease, 0);
         return;
     }
     real_session_teardown(session, params, reason, &stock_done);
+    /* The worker no longer references stock clocks. Stop stock audio before
+     * waiting on ancillary PF helpers, retaining lifecycle serialization. */
+    alt_private111_finish_cleanup(&after_stock_cleanup);
     if (out_done) *out_done = stock_done;
     altscreen_log("PHASE=TEARDOWN_OUTER receiver=%p stock_called=1 reason=%d done=%d scope=%u",session,reason,out_done?(int)*out_done:-1,scope);
     fullchain_lifecycle_leave(session, &lease, full && stock_done);
@@ -505,6 +509,7 @@ static int fullchain_stop_server(void *session, unsigned flags, void *command,
                                  const void *qualifier, const void *params,
                                  void **out_params) {
     struct alt_session_lease lease;
+    struct p1404_pf_lease after_stock_cleanup = {0, 0};
     int r, admission = fullchain_lifecycle_enter(session, ALT_SESSION_CONTROL, &lease);
     if (admission != ALT_SESSION_ENTERED) {
         if (out_params) *out_params = NULL;
@@ -512,7 +517,8 @@ static int fullchain_stop_server(void *session, unsigned flags, void *command,
         return admission == ALT_SESSION_CLOSED ? 0 : -1;
     }
     bootstrap_forget(session);
-    if (alt_state_lookup_any(session) && !alt_private111_teardown(session, "stopServer")) {
+    if (alt_state_lookup_any(session) &&
+        !alt_private111_teardown_deferred(session, "stopServer", &after_stock_cleanup)) {
         altscreen_log("ERROR PHASE=TEARDOWN_PRIVATE_BARRIER session=%p command=stopServer callback_refused=1 stock_caller_may_ignore_status=1",
                       session);
         fullchain_lifecycle_leave(session, &lease, 0);
@@ -520,6 +526,7 @@ static int fullchain_stop_server(void *session, unsigned flags, void *command,
     }
     r = AirPlayReceiverSessionPlatformControl_legacy(session, flags, command,
                                                    qualifier, params, out_params);
+    alt_private111_finish_cleanup(&after_stock_cleanup);
     fullchain_lifecycle_leave(session, &lease, 0);
     return r;
 }

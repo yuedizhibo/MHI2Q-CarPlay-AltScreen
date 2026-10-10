@@ -158,6 +158,7 @@ struct alt111_pair {
     int stop_requested;
     int session_stopped;
     int firewall_open;
+    uint32_t firewall_generation;
     int phase;
 };
 
@@ -201,7 +202,7 @@ static struct alt111_pair *pair_find_locked(void *session) {
 
 static int pair_install(void *receiver, void *session,
                         int fd, uint16_t port, uint64_t connection_id,
-                        int firewall_open) {
+                        const struct p1404_pf_lease *firewall) {
     unsigned i;
     struct alt111_pair *free_pair = NULL;
     int ok = 0;
@@ -230,7 +231,8 @@ static int pair_install(void *receiver, void *session,
         free_pair->listen_fd = fd;
         free_pair->listen_port = port;
         free_pair->connection_id = connection_id;
-        free_pair->firewall_open = firewall_open;
+        free_pair->firewall_open = firewall && firewall->generation;
+        free_pair->firewall_generation = firewall ? firewall->generation : 0;
         free_pair->phase = ALT111_W_PREPARED;
         ok = 1;
     }
@@ -323,6 +325,7 @@ static int pair_request_stop_snapshot(void *receiver, void *session,
 
 
 static int pair_close_firewall(struct alt111_pair *p, const char *reason) {
+    struct p1404_pf_lease lease = {0, 0};
     uint16_t port = 0;
     void *session = NULL;
     int active = 0;
@@ -331,10 +334,12 @@ static int pair_close_firewall(struct alt111_pair *p, const char *reason) {
         session = p->session;
         port = p->listen_port;
         active = p->firewall_open;
+        lease.port = port;
+        lease.generation = p->firewall_generation;
     }
     pairs_unlock();
     if (!active) return 1;
-    if (!p1404_alt111_firewall_close(port)) {
+    if (!p1404_alt111_firewall_close_owned(&lease)) {
         int error = errno;
         altscreen_log("ERROR PHASE=STREAM_111_FIREWALL_REMOVE session=%p port=%u reason=%s result=FAILED errno=%d bounded_ms=1500",
                       session, (unsigned)port, reason ? reason : "-", error);
@@ -557,6 +562,7 @@ static int prepare_setup(void *receiver,
     uint64_t connection_id = 0;
     uint16_t port = 0;
     int listen_fd = -1, rc, firewall_open = 0;
+    struct p1404_pf_lease firewall = {0, 0};
 
     if (alt_screen_session) *alt_screen_session = NULL;
     if (owned_private_response) *owned_private_response = NULL;
@@ -575,7 +581,7 @@ static int prepare_setup(void *receiver,
     if (!prepare_start_context(receiver, session, alt_descriptor, &connection_id))
         goto fail_local;
     if (!open_stock_equivalent_listener(receiver, &port, &listen_fd)) goto fail_local;
-    if (!p1404_alt111_firewall_open(port)) {
+    if (!p1404_alt111_firewall_open_owned(port, &firewall)) {
         int firewall_errno = errno;
         altscreen_log("ERROR PHASE=STREAM_111_FIREWALL_ADD receiver=%p session=%p port=%u result=FAILED errno=%d response_advertised=0 fail_closed=1",
                       receiver, session, (unsigned)port, firewall_errno);
@@ -586,7 +592,7 @@ static int prepare_setup(void *receiver,
                   receiver, session, (unsigned)port);
     if (!build_stream111_response(alt_descriptor, port, &response)) goto fail_local;
 
-    if (!pair_install(receiver, session, listen_fd, port, connection_id, firewall_open)) {
+    if (!pair_install(receiver, session, listen_fd, port, connection_id, &firewall)) {
         altscreen_log("ERROR PHASE=STREAM_111_PAIR_INSTALL receiver=%p session=%p table_or_collision=1",
                       receiver, session);
         goto fail_local;
@@ -602,7 +608,7 @@ static int prepare_setup(void *receiver,
 fail_local:
     if (response) alt_airplay_release_object(response);
     if (firewall_open) {
-        int fw_rc = p1404_alt111_firewall_close(port);
+        int fw_rc = p1404_alt111_firewall_close_owned(&firewall);
         altscreen_log("%s PHASE=STREAM_111_FIREWALL_REMOVE session=%p port=%u reason=prepare_failure result=%s",
                       fw_rc ? "PHASE" : "ERROR", session, (unsigned)port,
                       fw_rc ? "OK" : "FAILED");
@@ -945,7 +951,8 @@ static int make_existing_response(void *receiver,
 
 static int teardown_private(void *receiver,
                             void *alt_screen_session,
-                            void *alt_screen_stream) {
+                            void *alt_screen_stream,
+                            struct p1404_pf_lease *after_stock_cleanup) {
     struct alt111_pair *p;
     p1404_pthread_t thread = 0;
     int worker_started = 0, worker_done = 0, phase = ALT111_W_NONE;
@@ -1037,15 +1044,26 @@ static int teardown_private(void *receiver,
         altscreen_log("PHASE=STREAM_111_SESSION_DELETE_DONE session=%p", alt_screen_session);
     }
 
-    /*
-     * Only after the private ScreenSession is quiescent/deleted may the
-     * temporary exact-port PF rule be removed.  Cleanup is best-effort: failure
-     * is logged and the core teardown still completes.
-     */
-    altscreen_log("PHASE=STREAM_111_FIREWALL_REMOVE_BEGIN session=%p bounded_ms=1500", alt_screen_session);
-    if (!pair_close_firewall(p, "teardown_post_session")) {
-        altscreen_log("WARN PHASE=STREAM_111_FIREWALL_REMOVE session=%p reason=teardown_post_session result=FAILED core_teardown_preserved=1",
-                      alt_screen_session);
+    if (after_stock_cleanup) {
+        /* Mandatory Stop/Join/Delete are complete. Transfer only the PF lease
+         * to the outer caller so stock audio stops before any helper wait. */
+        pairs_lock();
+        p = pair_find_locked(alt_screen_session);
+        if (p && p->firewall_open) {
+            after_stock_cleanup->port = p->listen_port;
+            after_stock_cleanup->generation = p->firewall_generation;
+            p->firewall_open = 0;
+        }
+        pairs_unlock();
+        altscreen_log("PHASE=STREAM_111_FIREWALL_DEFERRED port=%u generation=%u stock_audio_first=1",
+                      (unsigned)after_stock_cleanup->port, after_stock_cleanup->generation);
+    } else {
+        /* SETUP rollback has no pending stock audio teardown to prioritize. */
+        altscreen_log("PHASE=STREAM_111_FIREWALL_REMOVE_BEGIN session=%p bounded_ms=1500", alt_screen_session);
+        if (!pair_close_firewall(p, "teardown_post_session")) {
+            altscreen_log("WARN PHASE=STREAM_111_FIREWALL_REMOVE session=%p reason=teardown_post_session result=FAILED core_teardown_preserved=1",
+                          alt_screen_session);
+        }
     }
 
     pairs_lock();

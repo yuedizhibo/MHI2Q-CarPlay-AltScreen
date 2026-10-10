@@ -16,6 +16,10 @@ extern void altscreen_log(const char *fmt, ...);
 #define PF_TRANSACTION_MS 1500u
 #define PF_REAP_MS 100u
 static volatile unsigned g_pf_guard;
+/* Protected by the same lock as rule mutations. Fixed size, no queue or heap
+ * lifetime; a later open of the same port invalidates an older cleanup lease. */
+static uint32_t g_pf_port_generations[65536];
+static uint32_t g_pf_generation;
 static int g_pending_child = -1; /* guarded; never accumulate timed-out children */
 /* Diagnostics are transaction-local under g_pf_guard. */
 static const char *g_pf_stage;
@@ -279,7 +283,7 @@ done:
     return buf;
 }
 
-static int apply_rule(uint16_t port, int enable) {
+static int apply_rule(uint16_t port, int enable, struct p1404_pf_lease *lease) {
     char *before = NULL, *after = NULL;
     char path[96];
     char *argv[] = { "pfctl", "-f", path, NULL };
@@ -287,7 +291,7 @@ static int apply_rule(uint16_t port, int enable) {
     size_t cap;
     int changed = 0, ok = 0, n, saved, write_ok;
     uint64_t start, deadline;
-    if (!port) return 0;
+    if (!port || (!enable && lease && !lease->generation)) return 0;
     start = pf_now_ms();
     if (!start) { errno = EIO; return 0; }
     deadline = start + PF_TRANSACTION_MS;
@@ -298,6 +302,16 @@ static int apply_rule(uint16_t port, int enable) {
     g_pf_stage = "capture_rules"; g_pf_program = NULL;
     g_pf_command = "none";
     g_pf_status = -1; g_pf_error[0] = 0;
+    if (lease && !enable && g_pf_port_generations[port] != lease->generation) {
+        g_pf_stage = "stale_cleanup_skipped";
+        ok = 1;
+        goto done;
+    }
+    if (lease && enable && g_pf_generation == UINT32_MAX) {
+        /* Never wrap an ownership identity onto a still-pending lease. */
+        errno = EIO;
+        goto done;
+    }
     before = capture_rules(port, deadline);
     if (!before) goto done;
     cap = strlen(before) + 256u;
@@ -329,6 +343,15 @@ done:
     saved = errno;
     if (fp) fclose(fp);
     free(after); free(before);
+    if (lease && enable && ok) {
+        lease->port = port;
+        lease->generation = ++g_pf_generation;
+        g_pf_port_generations[port] = lease->generation;
+    } else if (!enable && (!lease || g_pf_port_generations[port] == lease->generation)) {
+        /* A consumed failed cleanup can leave a rule, but cannot own any future
+         * connection. A new open will get a fresh identity even if rule exists. */
+        g_pf_port_generations[port] = 0;
+    }
     altscreen_log("%s PHASE=ALT111_PF_TRANSACTION port=%u enable=%d result=%s stage=%s command=%s errno=%d wait_status=%d helper=%s elapsed_ms=%llu detail=%.383s",
                   ok ? "INFO" : "ERROR", (unsigned)port, enable,
                   ok ? "OK" : "FAILED", g_pf_stage, g_pf_command, ok ? 0 : saved,
@@ -339,5 +362,16 @@ done:
     return ok;
 }
 
-int p1404_alt111_firewall_open(uint16_t port) { return apply_rule(port, 1); }
-int p1404_alt111_firewall_close(uint16_t port) { return apply_rule(port, 0); }
+int p1404_alt111_firewall_open(uint16_t port) { return apply_rule(port, 1, NULL); }
+int p1404_alt111_firewall_close(uint16_t port) { return apply_rule(port, 0, NULL); }
+int p1404_alt111_firewall_open_owned(uint16_t port, struct p1404_pf_lease *lease) {
+    if (!lease) return 0;
+    memset(lease, 0, sizeof(*lease));
+    return apply_rule(port, 1, lease);
+}
+int p1404_alt111_firewall_close_owned(const struct p1404_pf_lease *lease) {
+    struct p1404_pf_lease copy;
+    if (!lease) return 0;
+    copy = *lease;
+    return apply_rule(copy.port, 0, &copy);
+}

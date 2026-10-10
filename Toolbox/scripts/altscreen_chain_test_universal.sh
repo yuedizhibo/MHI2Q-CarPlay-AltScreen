@@ -1,4 +1,22 @@
 #!/bin/sh
+# QNX /tmp can be a process-manager link to /dev/shmem. That namespace
+# supports flat files, but neither mkdir nor atomic rename. Use the boot-local
+# QNX4 ramdisk for directory locks and atomically replaced metadata. Never fall
+# back to a second lock namespace: all contenders must use the same path.
+alts_posix_tmp_dir() (
+    alts_storage_input=$1
+    alts_storage_physical=$(CDPATH= cd "$alts_storage_input" 2>/dev/null && pwd -P) || alts_storage_physical=""
+    case "$alts_storage_physical" in
+        */dev/shmem) printf '%s/ramdisk/var/run\n' "${alts_storage_physical%/dev/shmem}"; return 0 ;;
+    esac
+    case "$alts_storage_input" in /tmp|/dev/shmem)
+        if [ "$(uname -s 2>/dev/null)" = QNX ]; then
+            printf '%s\n' /ramdisk/var/run; return 0
+        fi ;;
+    esac
+    printf '%s\n' "$alts_storage_input"
+)
+
 # MIB2Q AUG22 universal AltScreen controller.
 #
 # Since 2026-09-17 this is the only active installation/runtime path for supported
@@ -90,7 +108,7 @@ UNIVERSAL_BACKUP_DIR="$BACKUP_ROOT/universal-hook-original"
 UNIVERSAL_BACKUP_FILE="$UNIVERSAL_BACKUP_DIR/libcarplay_altscreen.so"
 UNIVERSAL_BACKUP_COMPLETE="$UNIVERSAL_BACKUP_DIR/COMPLETE"
 LOCK_FILE="$STATE_DIR/.chain_test.lock"
-LOCK_BOOT_TOKEN_FILE="$(p /tmp/altscreen_boot_token)"
+LOCK_BOOT_TOKEN_FILE="$(alts_posix_tmp_dir "$(p /tmp)")/altscreen_boot_token"
 LOCK_OWNER_TAG="MMI-Cockpit-Carplay-Universal"
 INSTALLED_MARKER="$STATE_DIR/INSTALLED"
 PROBE_MARKER="$(p /mnt/app/root/carplay-altscreen/state/fullchain_probe)"
@@ -186,23 +204,28 @@ lock_boot_token(){
         fi
     fi
 
-    if ( umask 077; printf '%s\n' "$token" > "$tmp" ) 2>/dev/null; then
-        if [ -s "$LOCK_BOOT_TOKEN_FILE" ]; then
-            rm -f "$tmp" 2>/dev/null || true
-        elif ! mv "$tmp" "$LOCK_BOOT_TOKEN_FILE" 2>/dev/null; then
-            rm -f "$tmp" 2>/dev/null || true
+    token_gate="${LOCK_BOOT_TOKEN_FILE}.init"
+    if ensure_dirs "$token_dir" 2>/dev/null && mkdir "$token_gate" 2>/dev/null; then
+        if [ ! -s "$LOCK_BOOT_TOKEN_FILE" ]; then
+            if ( umask 077; printf '%s\n' "$token" > "$tmp" ) 2>/dev/null; then
+                mv "$tmp" "$LOCK_BOOT_TOKEN_FILE" 2>/dev/null || true
+            fi
         fi
-        if [ -s "$LOCK_BOOT_TOKEN_FILE" ]; then
-            cat "$LOCK_BOOT_TOKEN_FILE"
-            return 0
-        fi
-    else
         rm -f "$tmp" 2>/dev/null || true
+        rmdir "$token_gate" 2>/dev/null || true
+    else
+        # A crashed publisher only disables the boot hint; never remove a gate
+        # owned by a competing publisher. PID checks remain mandatory without it.
+        token_wait=0
+        while [ ! -s "$LOCK_BOOT_TOKEN_FILE" ] && [ "$token_wait" -lt 3 ]; do
+            token_wait=$((token_wait + 1)); sleep 1
+        done
+    fi
+    if [ -s "$LOCK_BOOT_TOKEN_FILE" ]; then
+        cat "$LOCK_BOOT_TOKEN_FILE"
+        return 0
     fi
 
-    # The lock still has owner+pid metadata. If volatile storage cannot hold a
-    # boot token, degrade conservatively to PID liveness rather than blocking
-    # INSTALL/START/RESTORE solely because /tmp has non-POSIX semantics.
     echo "WARN: volatile boot token unavailable; stale-lock recovery is PID-only for this boot" >&2
     printf '%s\n' unavailable
     return 0
@@ -307,12 +330,20 @@ finish_mounts(){
 
 verify_backup() (
     [ -f "$COMPLETE_MARKER" ] && [ -f "$BACKUP_MANIFEST" ] && [ -f "$BACKUP_DIR/overlay_present.txt" ] && [ -f "$BACKUP_DIR/overlay_dir.txt" ] || return 1
-    count=0
+    count=0; seen=" "
     while IFS= read -r rel; do
         case "$rel" in
-          /eso/bin/apps/dio_manager|/mnt/app/eso/bin/apps/dio_manager|/eso/lib/libairplay.so|/armle/usr/lib/libNmeBaseClasses.so|/mnt/app/armle/usr/lib/libNmeBaseClasses.so|/eso/lib/libNmeBaseClasses.so|/mnt/system/etc/eso/production/smartphone_integrator.json|/mnt/system/etc/eso/production/dio_manager.json) ;;
+          /eso/bin/apps/dio_manager|/mnt/app/eso/bin/apps/dio_manager) role=dio ;;
+          /eso/lib/libairplay.so) role=airplay ;;
+          /armle/usr/lib/libNmeBaseClasses.so|/mnt/app/armle/usr/lib/libNmeBaseClasses.so|/eso/lib/libNmeBaseClasses.so) role=nme ;;
+          /mnt/system/etc/eso/production/smartphone_integrator.json) role=si ;;
+          /mnt/system/etc/eso/production/dio_manager.json) role=config ;;
           *) return 1 ;;
         esac
+        # Exactly one member for each of the five required roles. Counting
+        # lines alone could accept duplicates and leave another file unrestored.
+        case "$seen" in *" $role "*) return 1 ;; esac
+        seen="$seen$role "
         member="$BACKUP_DIR/files/$(echo "$rel" | tr '/' '_')"
         [ -s "$member" ] && [ -f "$member.cksum" ] && [ "$(cksum < "$member")" = "$(cat "$member.cksum")" ] || return 1
         count=$((count+1))
@@ -330,7 +361,8 @@ verify_backup() (
 backup_originals() (
     if [ -f "$COMPLETE_MARKER" ]; then verify_backup || return 1; say "BACKUP=EXISTING kept"; return 0; fi
     live_si=$(p "$LIVE_JSON_SI")
-    if grep -Fq 'libcarplay_altscreen.so' "$live_si" 2>/dev/null; then
+    if grep -Eq 'libcarplay_(altscreen|rgi_meta)\.so' "$live_si" 2>/dev/null ||
+       [ -e "$(p /mnt/app/eso/hmi/lsd/jars/carplay_hook.jar)" ]; then
         say "NATIVE_REINSTALL_PRECHECK=FAIL reason=SMARTPHONE_INTEGRATOR_PRELOAD_PRESENT path=$LIVE_JSON_SI token=libcarplay_altscreen.so"
         say "FAIL: trusted original backup is absent but live CarPlay config already references an AltScreen hook; reuse the original SD backup or restore stock first"
         return 1

@@ -1,4 +1,22 @@
 #!/bin/sh
+# QNX /tmp can be a process-manager link to /dev/shmem. That namespace
+# supports flat files, but neither mkdir nor atomic rename. Use the boot-local
+# QNX4 ramdisk for directory locks and atomically replaced metadata. Never fall
+# back to a second lock namespace: all contenders must use the same path.
+alts_posix_tmp_dir() (
+    alts_storage_input=$1
+    alts_storage_physical=$(CDPATH= cd "$alts_storage_input" 2>/dev/null && pwd -P) || alts_storage_physical=""
+    case "$alts_storage_physical" in
+        */dev/shmem) printf '%s/ramdisk/var/run\n' "${alts_storage_physical%/dev/shmem}"; return 0 ;;
+    esac
+    case "$alts_storage_input" in /tmp|/dev/shmem)
+        if [ "$(uname -s 2>/dev/null)" = QNX ]; then
+            printf '%s\n' /ramdisk/var/run; return 0
+        fi ;;
+    esac
+    printf '%s\n' "$alts_storage_input"
+)
+
 # AltScreen chain-test controller: install / start / status / restore / collect.
 #
 # Owner's simplified flow, superseding the earlier READY/hash/authorization chain:
@@ -149,7 +167,7 @@ STAGE_DIR="$STAGING_ROOT/original"
 LOCK_FILE="$STATE_DIR/.chain_test.lock"
 LEGACY_STATE_DIR="$VOLUME/Log/MMI-Cockpit-Carplay/current"
 LEGACY_BACKUP_ROOT="$VOLUME/Backup/AltScreenChain"
-LOCK_BOOT_TOKEN_FILE="$(p /tmp/altscreen_boot_token)"
+LOCK_BOOT_TOKEN_FILE="$(alts_posix_tmp_dir "$(p /tmp)")/altscreen_boot_token"
 LOCK_OWNER_TAG="MMI-Cockpit-Carplay-Known"
 BACKUP_MANIFEST="$BACKUP_DIR/manifest.txt"
 COMPLETE_MARKER="$BACKUP_DIR/COMPLETE"
@@ -202,20 +220,28 @@ lock_boot_token() {
     token="$(date +%Y%m%d_%H%M%S 2>/dev/null || echo boot)_$$"
     token_dir=$(dirname -- "$LOCK_BOOT_TOKEN_FILE")
     tmp="${LOCK_BOOT_TOKEN_FILE}.new.$$"
-    if ensure_dirs "$token_dir" 2>/dev/null &&
-       ( umask 077; printf '%s\n' "$token" > "$tmp" ) 2>/dev/null; then
-        if [ -s "$LOCK_BOOT_TOKEN_FILE" ]; then
-            rm -f "$tmp" 2>/dev/null || true
-        elif ! mv "$tmp" "$LOCK_BOOT_TOKEN_FILE" 2>/dev/null; then
-            rm -f "$tmp" 2>/dev/null || true
+    token_gate="${LOCK_BOOT_TOKEN_FILE}.init"
+    if ensure_dirs "$token_dir" 2>/dev/null && mkdir "$token_gate" 2>/dev/null; then
+        if [ ! -s "$LOCK_BOOT_TOKEN_FILE" ]; then
+            if ( umask 077; printf '%s\n' "$token" > "$tmp" ) 2>/dev/null; then
+                mv "$tmp" "$LOCK_BOOT_TOKEN_FILE" 2>/dev/null || true
+            fi
         fi
-        if [ -s "$LOCK_BOOT_TOKEN_FILE" ]; then
-            cat "$LOCK_BOOT_TOKEN_FILE"
-            return 0
-        fi
-    else
         rm -f "$tmp" 2>/dev/null || true
+        rmdir "$token_gate" 2>/dev/null || true
+    else
+        # A crashed publisher only disables the boot hint; never remove a gate
+        # owned by a competing publisher. PID checks remain mandatory without it.
+        token_wait=0
+        while [ ! -s "$LOCK_BOOT_TOKEN_FILE" ] && [ "$token_wait" -lt 3 ]; do
+            token_wait=$((token_wait + 1)); sleep 1
+        done
     fi
+    if [ -s "$LOCK_BOOT_TOKEN_FILE" ]; then
+        cat "$LOCK_BOOT_TOKEN_FILE"
+        return 0
+    fi
+
     echo "WARN: volatile boot token unavailable; stale-lock recovery is PID-only for this boot" >&2
     printf '%s\n' unavailable
     return 0

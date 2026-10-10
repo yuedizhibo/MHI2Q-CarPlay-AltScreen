@@ -1,4 +1,22 @@
 #!/bin/sh
+# QNX /tmp can be a process-manager link to /dev/shmem. That namespace
+# supports flat files, but neither mkdir nor atomic rename. Use the boot-local
+# QNX4 ramdisk for directory locks and atomically replaced metadata. Never fall
+# back to a second lock namespace: all contenders must use the same path.
+alts_posix_tmp_dir() (
+    alts_storage_input=$1
+    alts_storage_physical=$(CDPATH= cd "$alts_storage_input" 2>/dev/null && pwd -P) || alts_storage_physical=""
+    case "$alts_storage_physical" in
+        */dev/shmem) printf '%s/ramdisk/var/run\n' "${alts_storage_physical%/dev/shmem}"; return 0 ;;
+    esac
+    case "$alts_storage_input" in /tmp|/dev/shmem)
+        if [ "$(uname -s 2>/dev/null)" = QNX ]; then
+            printf '%s\n' /ramdisk/var/run; return 0
+        fi ;;
+    esac
+    printf '%s\n' "$alts_storage_input"
+)
+
 set -eu
 
 # Mirror can be launched from startup.sh, GEM, diagnostics, or an SSH shell.
@@ -37,7 +55,8 @@ WATCH_PIDFILE="$TMP_ROOT/altscreen_mirror.lifecycle.pid"
 STOP_GUARD="$TMP_ROOT/altscreen_mirror.stop.requested"
 LOGFILE="$TMP_ROOT/altscreen_mirror.log"
 AUTORESTART_LOG="$TMP_ROOT/altscreen_mirror.autorestart.log"
-RECOVERY_LOCK="$TMP_ROOT/altscreen_mirror.recovery.lock"
+RECOVERY_DIR=$(alts_posix_tmp_dir "$TMP_ROOT")
+RECOVERY_LOCK="$RECOVERY_DIR/altscreen_mirror.recovery.lock"
 READY="$TMP_ROOT/altscreen_mirror.ready"
 BASE_READY="${ALT111_JAVA_BASE_READY_FILE:-/tmp/mmi-mirror-basevideo.ready}"
 GATE_TOKEN="$TMP_ROOT/altscreen_mirror.phone111.gate"
@@ -170,9 +189,19 @@ schedule_abnormal_restart() {
     echo "MIRROR_ABNORMAL_RESTART=SUPPRESSED reason=$WHY lifecycle_owner=STREAM_SUPERVISOR"
     return 1
   fi
-  if ! mkdir "$RECOVERY_LOCK" 2>/dev/null; then
-    echo "MIRROR_ABNORMAL_RESTART=ALREADY_SCHEDULED reason=$WHY lock=$RECOVERY_LOCK"
-    return 0
+  if [ ! -d "$RECOVERY_DIR" ]; then
+    if ! mkdir -p "$RECOVERY_DIR" && [ ! -d "$RECOVERY_DIR" ]; then
+      echo "MIRROR_ABNORMAL_RESTART=FAILED reason=storage_unavailable path=$RECOVERY_DIR"
+      return 1
+    fi
+  fi
+  if ! mkdir "$RECOVERY_LOCK"; then
+    if [ -d "$RECOVERY_LOCK" ] && [ ! -L "$RECOVERY_LOCK" ]; then
+      echo "MIRROR_ABNORMAL_RESTART=ALREADY_SCHEDULED reason=$WHY lock=$RECOVERY_LOCK"
+      return 0
+    fi
+    echo "MIRROR_ABNORMAL_RESTART=FAILED reason=lock_create path=$RECOVERY_LOCK"
+    return 1
   fi
   NEXT=$((RESTART_COUNT + 1))
   if [ "$NEXT" -gt "$MAX_ABNORMAL_RESTARTS" ]; then

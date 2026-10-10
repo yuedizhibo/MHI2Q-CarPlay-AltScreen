@@ -1,4 +1,22 @@
 #!/bin/sh
+# QNX /tmp can be a process-manager link to /dev/shmem. That namespace
+# supports flat files, but neither mkdir nor atomic rename. Use the boot-local
+# QNX4 ramdisk for directory locks and atomically replaced metadata. Never fall
+# back to a second lock namespace: all contenders must use the same path.
+alts_posix_tmp_dir() (
+    alts_storage_input=$1
+    alts_storage_physical=$(CDPATH= cd "$alts_storage_input" 2>/dev/null && pwd -P) || alts_storage_physical=""
+    case "$alts_storage_physical" in
+        */dev/shmem) printf '%s/ramdisk/var/run\n' "${alts_storage_physical%/dev/shmem}"; return 0 ;;
+    esac
+    case "$alts_storage_input" in /tmp|/dev/shmem)
+        if [ "$(uname -s 2>/dev/null)" = QNX ]; then
+            printf '%s\n' /ramdisk/var/run; return 0
+        fi ;;
+    esac
+    printf '%s\n' "$alts_storage_input"
+)
+
 # AltScreen controller router.
 #
 # Active installation policy (2026-09-17): UNIVERSAL ONLY.
@@ -87,7 +105,7 @@ INSTALL_TXN_DIR="$SD_ROOT/install-transaction/active"
 RUNTIME_OWNER=.mmi-cockpit-carplay-runtime-owner
 RUNTIME_PUBLISHED=0
 RUNTIME_HAD_CURRENT=0
-RUNTIME_SCRIPTS="altscreen_chain_test.sh altscreen_chain_test_known.sh altscreen_chain_test_universal.sh altscreen_sd_writable.sh altscreen_install_transaction.sh altscreen_restore_transaction.sh altscreen_restore_apply.sh altscreen_persistent_diag.sh altscreen_adaptive_diag.sh altscreen_boot_diag.sh altscreen_live_diag.sh altscreen_preload.awk install_mmi_cockpit_carplay_rx.sh install_mmi_cockpit_carplay_no_rgi.sh install_mmi_cockpit_carplay_with_rgi.sh start_mmi_cockpit_carplay_test.sh start_mmi_cockpit_carplay_rx_test.sh force_start_mmi_cockpit_carplay_rx_test.sh stop_mmi_cockpit_carplay_test.sh status_mmi_cockpit_carplay_test.sh finish_mmi_cockpit_carplay_test.sh"
+RUNTIME_SCRIPTS="altscreen_chain_test.sh altscreen_chain_test_known.sh altscreen_chain_test_universal.sh altscreen_console.sh altscreen_install.sh altscreen_v33_rgi_config.sh altscreen_sd_writable.sh altscreen_install_transaction.sh altscreen_restore_transaction.sh altscreen_restore_apply.sh altscreen_persistent_diag.sh altscreen_adaptive_diag.sh altscreen_boot_diag.sh altscreen_live_diag.sh altscreen_preload.awk install_mmi_cockpit_carplay_rx.sh install_mmi_cockpit_carplay_no_rgi.sh install_mmi_cockpit_carplay_with_rgi.sh start_mmi_cockpit_carplay_test.sh start_mmi_cockpit_carplay_rx_test.sh force_start_mmi_cockpit_carplay_rx_test.sh stop_mmi_cockpit_carplay_test.sh status_mmi_cockpit_carplay_test.sh finish_mmi_cockpit_carplay_test.sh"
 
 mount_app_rw(){ [ "$TESTING" = 1 ] || mount -uw /mnt/app; }
 mount_app_ro(){ [ "$TESTING" = 1 ] || mount -ur /mnt/app; }
@@ -184,6 +202,8 @@ validate_runtime_sources(){
     sh -n "$MIRROR_SD/stop_vehicle.sh" || return 1
     sh -n "$MIRROR_SD/stream_supervisor.sh" || return 1
     sh -n "$MIRROR_SD/rgi_supervisor.sh" || return 1
+    printf '%s\n' '{"carplay":{"envs":[]}}' |
+        awk -v validate=1 -f "$SD_SCRIPTS/altscreen_preload.awk" >/dev/null || return 1
     return 0
 }
 
@@ -358,7 +378,7 @@ cleanup_volatile_runtime(){
     tmp_root="$(p /tmp)"
     rm -f "$tmp_root"/altscreen_start_* "$tmp_root"/altscreen_router_child_install.* \
           "$(p /tmp/altscreen_hook.log)" "$(p /tmp/altscreen_boot_entry.log)" \
-          "$(p /tmp/altscreen_boot_token)" "$(p /tmp/altscreen_autostart.log)" \
+          "$(p /tmp/altscreen_autostart.log)" \
           "$(p /tmp/altscreen_mirror.pid)" "$(p /tmp/altscreen_mirror.lifecycle.pid)" \
           "$(p /tmp/altscreen_mirror.stop.requested)" "$(p /tmp/altscreen_mirror.log)" \
           "$(p /tmp/altscreen_mirror.autorestart.log)" "$(p /tmp/altscreen_mirror.ready)" \
@@ -368,7 +388,11 @@ cleanup_volatile_runtime(){
           "$(p /tmp/altscreen_stream_supervisor.log)" \
           "$(p /tmp/mmi-mirror-active)" "$(p /tmp/mmi-mirror-basevideo.ready)" \
           "$(p /tmp/mmi-mirror-controller.started)" 2>/dev/null || true
+    posix_tmp=$(alts_posix_tmp_dir "$(p /tmp)")
+    rmdir "$posix_tmp/altscreen_mirror.recovery.lock" 2>/dev/null || true
     rmdir "$(p /tmp/altscreen_mirror.recovery.lock)" 2>/dev/null || true
+    # Boot identity and operation leases survive until reboot; deleting
+    # them here could let a competing writer bypass its active lease.
 
     # Backward-compatible cleanup only: older 2026-09-21 builds may have left
     # this namespace behind. New code never creates or writes into it.
@@ -550,6 +574,7 @@ restore_transaction_active(){
 
 install_transaction_active(){
     [ -d "$INSTALL_TXN_DIR" ] || return 1
+    [ ! -f "$INSTALL_TXN_DIR/ROLLBACK_INCOMPLETE" ] || return 0
     [ -f "$INSTALL_TXN_DIR/COMMITTED" ] && return 1
     [ -f "$INSTALL_TXN_DIR/ROLLED_BACK" ] && return 1
     return 0
@@ -557,6 +582,7 @@ install_transaction_active(){
 
 install_transaction_cleanup_terminal(){
     [ -d "$INSTALL_TXN_DIR" ] || return 0
+    [ ! -f "$INSTALL_TXN_DIR/ROLLBACK_INCOMPLETE" ] || return 0
     if [ -f "$INSTALL_TXN_DIR/COMMITTED" ] || [ -f "$INSTALL_TXN_DIR/ROLLED_BACK" ]; then
         rm -rf "$INSTALL_TXN_DIR" 2>/dev/null || {
             echo "WARN: terminal install transaction retained on SD; it is non-blocking" >&2
@@ -605,6 +631,12 @@ delegate_install(){
 
 CMD=${1:-}
 case "$CMD" in
+  package-precheck)
+    # Read-only package closure validation before one-step INSTALL withdraws
+    # the previous runtime. Reuse the exact staging requirements below.
+    validate_runtime_sources || exit 1
+    echo "PACKAGE_PREFLIGHT=PASS production_changed=NO"
+    ;;
   install)
     case "${ALTS_INSTALL_RGI_MODE:-WITH}" in NO|WITH) ;; *) fail "invalid RGI install mode" ;; esac
     restore_transaction_active && fail "restore transaction is active; recover/finish RESTORE ORIGINAL before INSTALL"
@@ -706,5 +738,5 @@ case "$CMD" in
     fi
     delegate "$route" "$CMD"
     ;;
-  *) echo "usage: altscreen_chain_test.sh {install|start|status|restore-precheck|restore|collect}" >&2; exit 2 ;;
+  *) echo "usage: altscreen_chain_test.sh {package-precheck|install|start|status|restore-precheck|restore|collect}" >&2; exit 2 ;;
 esac

@@ -393,6 +393,13 @@ snapshot(){
 }
 rollback(){
   [ -f "$TXN/PREPARED" ] || return 1
+  if [ -f "$TXN/COMMITTED" ]; then
+    touch "$TXN/ROLLBACK_INCOMPLETE" || return 1
+    rm -f "$TXN/COMMITTED" && sync || {
+      log "ROLLBACK=REFUSED reason=COMMIT_INVALIDATION_FAILED recovery_required=YES"
+      return 1
+    }
+  fi
   if ! validate_restore_snapshot; then
     touch "$TXN/ROLLBACK_INCOMPLETE" 2>/dev/null || true
     log "ROLLBACK=REFUSED reason=SNAPSHOT_INTEGRITY_FAILED production_changed=NO_BY_ROLLBACK recovery_required=YES"
@@ -424,13 +431,15 @@ rollback(){
   restore_dir "$STATE" state || r=1
   sync >/dev/null 2>&1 || r=1
   if [ "$r" = 0 ] && verify_restore_rollback; then
-    touch "$TXN/ROLLED_BACK"
-    rm -f "$TXN/APPLYING"
-    log "ROLLBACK_VERIFY=PASS"
-    log "ROLLBACK=PASS persistent_state=PRE_RESTORE reboot_required=YES"
-    ROLLING_BACK=0
-    return 0
+    if rm -f "$TXN/APPLYING" "$TXN/ROLLBACK_INCOMPLETE" &&
+       touch "$TXN/ROLLED_BACK" && sync; then
+      log "ROLLBACK_VERIFY=PASS"
+      log "ROLLBACK=PASS persistent_state=PRE_RESTORE reboot_required=YES"
+      ROLLING_BACK=0
+      return 0
+    fi
   fi
+  rm -f "$TXN/ROLLED_BACK" 2>/dev/null || true
   touch "$TXN/ROLLBACK_INCOMPLETE" 2>/dev/null || true
   log "ROLLBACK=FAIL recovery_required=YES transaction_retained=$TXN"
   ROLLING_BACK=0
@@ -438,7 +447,8 @@ rollback(){
 }
 recover_stale(){
   [ -d "$TXN" ] || return 0
-  if [ -f "$TXN/COMMITTED" ] || [ -f "$TXN/ROLLED_BACK" ]; then rm -rf "$TXN"; return $?; fi
+  if [ ! -f "$TXN/ROLLBACK_INCOMPLETE" ] &&
+     { [ -f "$TXN/COMMITTED" ] || [ -f "$TXN/ROLLED_BACK" ]; }; then rm -rf "$TXN"; return $?; fi
   if [ -f "$TXN/PREPARED" ]; then
     log "STALE_RESTORE_TRANSACTION=DETECTED action=ROLLBACK_FIRST"
     TXN_READY=1

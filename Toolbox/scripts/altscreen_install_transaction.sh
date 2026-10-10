@@ -319,6 +319,15 @@ verify_preinstall(){
 
 rollback(){
   [ -f "$TXN/PREPARED" ] || return 1
+  # A failed commit sync must never leave a terminal success marker while
+  # rollback is attempted. Invalidate it durably before changing any files.
+  if [ -f "$TXN/COMMITTED" ]; then
+    touch "$TXN/ROLLBACK_INCOMPLETE" || return 1
+    rm -f "$TXN/COMMITTED" && sync || {
+      log "INSTALL_ROLLBACK=REFUSED reason=COMMIT_INVALIDATION_FAILED recovery_required=YES"
+      return 1
+    }
+  fi
   if ! validate_snapshot; then
     touch "$TXN/ROLLBACK_INCOMPLETE" 2>/dev/null || true
     log "INSTALL_ROLLBACK=REFUSED reason=SNAPSHOT_INTEGRITY_FAILED production_changed=NO_BY_ROLLBACK recovery_required=YES"
@@ -353,17 +362,19 @@ rollback(){
   restore_dir "$STATE" sd_state || r=1
   restore_dir "$BACKUP" sd_backup || r=1
   restore_dir "$STAGING" sd_staging || r=1
-  sync >/dev/null 2>&1 || true
+  sync >/dev/null 2>&1 || r=1
 
   if [ "$r" = 0 ] && verify_preinstall; then
-    touch "$TXN/ROLLED_BACK"
-    rm -f "$TXN/APPLYING"
-    log "INSTALL_ROLLBACK_VERIFY=PASS"
-    log "INSTALL_ROLLBACK=PASS persistent_state=PRE_INSTALL reboot_required=YES"
-    ROLLING_BACK=0
-    return 0
+    if rm -f "$TXN/APPLYING" "$TXN/ROLLBACK_INCOMPLETE" &&
+       touch "$TXN/ROLLED_BACK" && sync; then
+      log "INSTALL_ROLLBACK_VERIFY=PASS"
+      log "INSTALL_ROLLBACK=PASS persistent_state=PRE_INSTALL reboot_required=YES"
+      ROLLING_BACK=0
+      return 0
+    fi
   fi
 
+  rm -f "$TXN/ROLLED_BACK" 2>/dev/null || true
   touch "$TXN/ROLLBACK_INCOMPLETE" 2>/dev/null || true
   log "INSTALL_ROLLBACK=FAIL recovery_required=YES transaction_retained=$TXN"
   ROLLING_BACK=0
@@ -372,7 +383,8 @@ rollback(){
 
 recover_stale(){
   [ -d "$TXN" ] || { log "STALE_INSTALL_TRANSACTION=ABSENT"; return 0; }
-  if [ -f "$TXN/COMMITTED" ] || [ -f "$TXN/ROLLED_BACK" ]; then
+  if [ ! -f "$TXN/ROLLBACK_INCOMPLETE" ] &&
+     { [ -f "$TXN/COMMITTED" ] || [ -f "$TXN/ROLLED_BACK" ]; }; then
     log "STALE_INSTALL_TRANSACTION=TERMINAL action=CLEANUP"
     rm -rf "$TXN" || return 1
     return 0

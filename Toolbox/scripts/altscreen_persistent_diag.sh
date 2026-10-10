@@ -195,6 +195,15 @@ BOOT_BLOCK
 
 precheck_remove_diag(){
     startup=$(find_startup) || { echo "DIAG_REMOVE_PRECHECK=FAIL reason=STARTUP_NOT_FOUND production_changed=NO" >&2; return 1; }
+    if [ -e "$BOOT_BACKUP" ]; then
+        if ! verify_boot_backup || [ "$(cat "$BOOT_BACKUP/path")" != "$(startup_rel "$startup")" ]; then
+            echo "DIAG_REMOVE_PRECHECK=FAIL reason=BOOT_BACKUP_INVALID production_changed=NO" >&2
+            return 1
+        fi
+    elif grep -q '^# BEGIN ALTSCREEN DIAGNOSTICS$' "$startup" 2>/dev/null; then
+        echo "DIAG_REMOVE_PRECHECK=FAIL reason=BOOT_BACKUP_MISSING production_changed=NO" >&2
+        return 1
+    fi
     sh -n "$startup" >/dev/null 2>&1 || { echo "DIAG_REMOVE_PRECHECK=FAIL reason=STARTUP_SYNTAX_INVALID production_changed=NO" >&2; return 1; }
     ensure_dirs "$TXN_ROOT" || { echo "DIAG_REMOVE_PRECHECK=FAIL reason=SD_STAGING_UNAVAILABLE production_changed=NO" >&2; return 1; }
     clean="$TXN_ROOT/diag-remove-precheck.tmp"
@@ -210,6 +219,7 @@ precheck_remove_diag(){
 }
 
 remove_diag(){
+    precheck_remove_diag || return 1
     startup=$(find_startup) || { echo "FAIL: startup.sh not found while disabling diagnostics" >&2; return 1; }
     sh -n "$startup" || return 1
     sys_rw=0; app_rw=0
@@ -219,6 +229,20 @@ remove_diag(){
     trap 'rm -rf "$txn" 2>/dev/null || true; exit 130' 1 2 15
     clean="$txn/startup.clean"
     if ! strip_block "$startup" > "$clean" || ! sh -n "$clean"; then return 1; fi
+    # AWK normalizes a missing final newline. If no unrelated startup edits
+    # remain, publish the verified first backup so RESTORE is byte-exact.
+    # Preserve later non-project edits when the cleaned content differs.
+    if [ -f "$BOOT_BACKUP/COMPLETE" ]; then
+        normalized="$txn/startup.original.normalized"
+        awk '{print}' "$BOOT_BACKUP/startup.sh" > "$normalized" || return 1
+        if cmp -s "$clean" "$normalized"; then
+            cp "$BOOT_BACKUP/startup.sh" "$clean" &&
+            cmp -s "$BOOT_BACKUP/startup.sh" "$clean" || return 1
+            echo "STARTUP_RESTORE_BASELINE=EXACT"
+        else
+            echo "STARTUP_RESTORE_BASELINE=PROJECT_BLOCKS_REMOVED unrelated_edits=PRESERVED"
+        fi
+    fi
     if ! mount_app_rw; then return 1; fi
     app_rw=1
     if ! rm -f "$ENABLED"; then mount_app_ro >/dev/null 2>&1 || true; return 1; fi

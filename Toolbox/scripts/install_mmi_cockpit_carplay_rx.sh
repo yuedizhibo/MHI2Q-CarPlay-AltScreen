@@ -109,7 +109,7 @@ fi
 # The outer operation-log wrapper re-enters this script once; that child then
 # hands control to the transaction wrapper.  The transaction calls back with
 # ALTS_INSTALL_TXN_ACTIVE=1 for the actual APPLY step.
-if [ "${ALTS_INSTALL_TXN_ACTIVE:-0}" != 1 ]; then
+if [ "${ALTS_INSTALL_TXN_ACTIVE:-0}" != 1 ] && [ "${ALTS_PACKAGE_PREFLIGHT:-0}" != 1 ]; then
     INSTALL_TXN="$VOLUME/Toolbox/scripts/altscreen_install_transaction.sh"
     [ -f "$INSTALL_TXN" ] || {
         echo "FAIL: transactional INSTALL wrapper missing: $INSTALL_TXN"
@@ -190,6 +190,14 @@ jar_valid "$JAR_SOURCE" || {
     echo "actual_size=$(file_size "$JAR_SOURCE") actual_cksum=$(file_cksum "$JAR_SOURCE")"
     exit 1
 }
+
+# One-step upgrade must validate the same package identity and complete runtime
+# requirements before removing the old installation. This branch is read-only.
+if [ "${ALTS_PACKAGE_PREFLIGHT:-0}" = 1 ]; then
+    /bin/sh "$CONTROLLER" package-precheck || exit 1
+    echo "INSTALL_PACKAGE_PREFLIGHT=PASS production_changed=NO"
+    exit 0
+fi
 
 echo "PACKAGE_MODE=CARPLAY_PRIVATE111_DIRECT_DISPLAY_V3_5_COLD_START"
 echo "NATIVE_SOURCE=private111_ScreenStreamProcessData h264_shm=/carplay111_h264"

@@ -11,6 +11,7 @@ import com.luka.carplay.routeguidance.GatedCombiService;
 import de.audi.atip.interapp.combi.bap.navi.CombiBAPServiceNavi;
 import de.audi.tghu.navi.app.Navigation;
 import de.audi.tghu.navi.app.cluster.ClusterService;
+import java.lang.reflect.Field;
 
 public final class ScreenNavStatusGate {
     private static final String TAG = "StatusGate";
@@ -55,9 +56,12 @@ public final class ScreenNavStatusGate {
                     gate = (GatedCombiService) current;
                 } else {
                     gate = new GatedCombiService(current);
-                    cs.setCombiBAPListenerCombiService(gate);
                 }
+                gate.setRouteGuidanceBlocked(desiredRouteBlocked);
+                gate.setCurrentPositionInfoBlocked(desiredCurrentPositionBlocked);
+                if (current != gate) cs.setCombiBAPListenerCombiService(gate);
                 clusterService = cs;
+                seedInstrumentState(cs);
                 Log.i(TAG, "native route-guidance gate installed/reused");
             }
 
@@ -65,6 +69,41 @@ public final class ScreenNavStatusGate {
             gate.setCurrentPositionInfoBlocked(desiredCurrentPositionBlocked);
             appliedRouteBlocked = desiredRouteBlocked;
         } catch (Throwable t) {
+        }
+    }
+
+    /** Installing after stock updateAll must not wait for another Fct44/54 delta.
+     * Read both accepted values on NavigationJobs, without sending synthetic BAP
+     * responses. The fields can belong to the stock listener's superclass. */
+    private static boolean readListenerBoolean(Object listener, String name) throws Exception {
+        Class type = listener.getClass();
+        while (type != null) {
+            try {
+                Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.getBoolean(listener);
+            } catch (NoSuchFieldException absent) {
+                type = type.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static void seedInstrumentState(ClusterService cs) {
+        /* Withdraw a previous service's visibility until the new snapshot is known. */
+        GatedCombiService.publishMapVisibility(false);
+        try {
+            Object listener = cs.getClass().getMethod("getCombiBAPListener", new Class[0])
+                .invoke(cs, new Object[0]);
+            boolean visible = readListenerBoolean(listener, "supplementaryMapViewVisible");
+            boolean largeMapView = readListenerBoolean(listener, "largeMapView");
+            GatedCombiService.publishMapPresentation(largeMapView);
+            GatedCombiService.publishMapVisibility(visible);
+            Log.i(TAG, "cluster display-state seeded visible=" + visible
+                + " largeMapView=" + largeMapView);
+        } catch (Throwable t) {
+            try { Log.w(TAG, "cluster display-state seed unavailable; awaiting stock Status: " + t); }
+            catch (Throwable ignored) { }
         }
     }
 
@@ -81,6 +120,7 @@ public final class ScreenNavStatusGate {
                 clusterService = null;
                 gate = null;
                 appliedRouteBlocked = false;
+                GatedCombiService.publishMapVisibility(false);
             }
             return null;
         }
@@ -98,6 +138,7 @@ public final class ScreenNavStatusGate {
         gate = next;
         gate.setRouteGuidanceBlocked(desiredRouteBlocked);
         gate.setCurrentPositionInfoBlocked(desiredCurrentPositionBlocked);
+        seedInstrumentState(cs);
         appliedRouteBlocked = desiredRouteBlocked;
         installScheduled = false;
         Log.i(TAG, "native route-guidance gate installed on Navigation service edge");
@@ -140,6 +181,7 @@ public final class ScreenNavStatusGate {
             if (cs == clusterService) {
                 clusterService = null;
                 gate = null;
+                GatedCombiService.publishMapVisibility(false);
             }
             /* Resident CarPlayHook retries unavailable navigation services. */
             return;

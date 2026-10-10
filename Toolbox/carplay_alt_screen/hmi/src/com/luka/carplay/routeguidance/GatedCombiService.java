@@ -22,6 +22,8 @@ import de.audi.atip.interapp.combi.bap.navi.data.CombiBAPNaviLaneGuidanceData;
 import de.audi.atip.interapp.combi.bap.navi.data.CombiBAPNaviManeuverDescriptor;
 import de.audi.atip.interapp.combi.bap.navi.data.CombiBAPSemiDynamicRouteInfo;
 import de.audi.atip.interapp.combi.bap.navi.data.EtcStatus;
+import com.luka.carplay.cluster.ClusterLayerController;
+import com.luka.carplay.framework.Log;
 
 public class GatedCombiService implements CombiBAPServiceNavi {
     final CombiBAPServiceNavi real;
@@ -107,7 +109,28 @@ public class GatedCombiService implements CombiBAPServiceNavi {
     public void updateSupportedMapTypes(boolean a, int b) { real.updateSupportedMapTypes(a, b); }
     public void updateMapView(int a, int b) { real.updateMapView(a, b); }
     public void updateSupportedMapViews(int a, int b) { real.updateSupportedMapViews(a, b); }
-    public void updateMapVisibility(boolean a, boolean b) { real.updateMapVisibility(a, b); }
+    public void updateMapVisibility(boolean lvdsVisible, boolean supplementaryVisible) {
+        /* The second stock status bit is the cluster KDK visibility accepted by
+         * CombiBAPListener. It must reach our layer even while native RGI is gated. */
+        publishMapVisibility(supplementaryVisible);
+        real.updateMapVisibility(lvdsVisible, supplementaryVisible);
+    }
+
+    public static void publishMapVisibility(boolean visible) {
+        try { ClusterLayerController.onVcVisibility(visible); }
+        catch (Throwable t) { logDisplayFailure(t); }
+    }
+
+    public static void publishMapPresentation(boolean largeMapView) {
+        try { ClusterLayerController.onVcPresentation(largeMapView); }
+        catch (Throwable t) { logDisplayFailure(t); }
+    }
+
+    private static void logDisplayFailure(Throwable t) {
+        /* A local layer or logger failure must never suppress the OEM Status response. */
+        try { Log.w("StatusGate", "cluster display-state forwarding failed: " + t); }
+        catch (Throwable ignored) { }
+    }
     public void updateMapOrientation(int a) { real.updateMapOrientation(a); }
     public void updateMapScale(int a, boolean b, int c, int d, boolean e) {
         real.updateMapScale(a, b, c, d, e);   /* native map scale — not gated on this branch */
@@ -124,7 +147,9 @@ public class GatedCombiService implements CombiBAPServiceNavi {
     public void poiSearchResult(int a, int b) { real.poiSearchResult(a, b); }
     public void updatePOIListSize(int a) { real.updatePOIListSize(a); }
     public void updateFSGSetup(int a, boolean b) { real.updateFSGSetup(a, b); }
-    public void updateMapPresentation(boolean a, boolean b, boolean c) {
-        real.updateMapPresentation(a, b, c); }
+    public void updateMapPresentation(boolean largeMapView, boolean leftMenu, boolean rightMenu) {
+        publishMapPresentation(largeMapView);
+        real.updateMapPresentation(largeMapView, leftMenu, rightMenu);
+    }
     public void updateEtcStatus(EtcStatus a) { real.updateEtcStatus(a); }
 }

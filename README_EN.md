@@ -54,7 +54,6 @@ This project is designed for the Audi **MHI2Q** platform and displays the **nati
 - The main CarPlay display remains available and unaffected
 - Full RGI navigation-data integration (built on [Luka's mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi))
   - Maneuver arrows and lane guidance on the cluster
-  - Current road, remaining distance, and arrival time in the cluster's lower info bar
   - Can be enabled or left out at install time (`INSTALL WITH RGI` / `INSTALL NO RGI`)
 - Classic / Sport dynamic layout adaptation
 - Global centering
@@ -84,7 +83,7 @@ This project is designed for the Audi **MHI2Q** platform and displays the **nati
 
 ## How it works and architecture
 
-This project no longer relies on the early Window58 readback route. It connects directly to CarPlay's **private type111** secondary-display video stream: the stock AirPlay / OMX decoding path is kept, frames are safely read from the stock renderer and linearized into standard NV12, handed to a separate display process, and finally shown on the cluster through GLES / displayable3 / Java Context80. Full RGI receives navigation data through iAP2 RouteGuidance, and the Java HMI distributes it to the cluster's lower info bar and to a separate maneuver renderer.
+This project no longer relies on the early Window58 readback route. It connects directly to CarPlay's **private type111** secondary-display video stream: the stock AirPlay / OMX decoding path is kept, frames are safely read from the stock renderer and linearized into standard NV12, handed to a separate display process, and finally shown on the cluster through GLES / displayable3 / Java Context80. Full RGI receives navigation data through iAP2 RouteGuidance, and the Java HMI forwards it to a separate maneuver renderer.
 
 ### Architecture diagram
 
@@ -103,7 +102,6 @@ flowchart TB
     subgraph HMI["Java HMI"]
         BUS["CarplayBus<br/>TCP 19810"]
         RG["RouteGuidance"]
-        BAP["BAPBridge / LowerBarKomo"]
         RS["RendererServer<br/>TCP 19800"]
         CSC["ClusterStateController<br/>Context80"]
         WZ["WheelZoomBridge"]
@@ -121,12 +119,10 @@ flowchart TB
     ALT -. "safe frame readback" .-> OMX
     OMX --> SHM --> MIR
     RGIM -- "TCP" --> BUS --> RG
-    RG --> BAP
     RG --> RS -- "TCP" --> MR
     WZ -- "wheel event queue" --> ALT
     MIR -- "displayable3 · map" --> VC
     MR -- "displayable 98 · arrows" --> VC
-    BAP -- "road / distance / arrival" --> VC
     CSC -- "switches Context80" --> VC
 ```
 
@@ -166,7 +162,6 @@ In vehicle testing, **whole-system CPU usage dropped from about 80% to about 20%
 ### RGI navigation-data path
 
 - `libcarplay_rgi_meta.so` receives iAP2 RouteGuidance data inside the stock CarPlay process and passes it to the Java HMI over local TCP port 19810.
-- The Java HMI writes the current road, remaining distance, and arrival time into the cluster's lower info bar, and hands the bar back to the stock display when there is no valid CarPlay data.
 - Maneuver arrows and lane guidance are sent over local TCP port 19800 to the separate `maneuver_render` process, which draws them on displayable 98. The process is supervised by `rgi_supervisor.sh` and restarted a limited number of times if it exits unexpectedly.
 
 ### Steering-wheel zoom
@@ -285,7 +280,7 @@ Installing and enabling are now one step, so **only one reboot is needed**:
 
 1. **Disconnect the iPhone / CarPlay** so navigation video is not playing during installation.
 2. In the `MMI-Cockpit-Carplay` menu, select one install mode:
-   - `INSTALL WITH RGI` (recommended): secondary-display map + full RGI (maneuver arrows, lane guidance, lower info bar).
+   - `INSTALL WITH RGI` (recommended): secondary-display map + full RGI (maneuver arrows, lane guidance).
    - `INSTALL NO RGI`: secondary-display map only, without the RGI components; useful if you only want the map or are troubleshooting RGI.
 3. Wait for the final `RESULT:` line. Do not remove the card, cut power, or reboot before it appears. The installer runs five steps and shows each one live:
 

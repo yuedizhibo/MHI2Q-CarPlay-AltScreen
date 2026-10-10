@@ -54,7 +54,6 @@
 - CarPlay 主屏正常使用，不受第二屏影响
 - 完整 RGI 导航信息联动（基于 [Luka 的 mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi) 构建）
   - 仪表转向箭头与车道引导
-  - 当前道路、剩余距离、到达时间同步到仪表底部信息栏
   - 可在安装时选择是否启用（`INSTALL WITH RGI` / `INSTALL NO RGI`）
 - Classic / Sport 动态布局适配
 - 全域居中
@@ -84,7 +83,7 @@
 
 ## 工作原理与架构
 
-本项目不再依赖早期的 Window58 读取路线，而是直接接入 CarPlay 的 **private type111** 第二屏视频流：保留原车 AirPlay / OMX 解码流程，从原车 renderer 安全读取画面并线性化为标准 NV12，再交给独立显示进程，最终通过 GLES / displayable3 / Java Context80 输出到仪表。完整 RGI 则通过 iAP2 RouteGuidance 取得导航信息，由 Java HMI 分发给仪表底部信息栏和独立的转向箭头渲染器。
+本项目不再依赖早期的 Window58 读取路线，而是直接接入 CarPlay 的 **private type111** 第二屏视频流：保留原车 AirPlay / OMX 解码流程，从原车 renderer 安全读取画面并线性化为标准 NV12，再交给独立显示进程，最终通过 GLES / displayable3 / Java Context80 输出到仪表。完整 RGI 则通过 iAP2 RouteGuidance 取得导航信息，由 Java HMI 转发给独立的转向箭头渲染器。
 
 ### 架构图
 
@@ -103,7 +102,6 @@ flowchart TB
     subgraph HMI["车机 Java HMI"]
         BUS["CarplayBus<br/>TCP 19810"]
         RG["RouteGuidance"]
-        BAP["BAPBridge / LowerBarKomo"]
         RS["RendererServer<br/>TCP 19800"]
         CSC["ClusterStateController<br/>Context80"]
         WZ["WheelZoomBridge"]
@@ -121,12 +119,10 @@ flowchart TB
     ALT -. "安全读取画面" .-> OMX
     OMX --> SHM --> MIR
     RGIM -- "TCP" --> BUS --> RG
-    RG --> BAP
     RG --> RS -- "TCP" --> MR
     WZ -- "滚轮事件队列" --> ALT
     MIR -- "displayable3 · 地图" --> VC
     MR -- "displayable 98 · 箭头" --> VC
-    BAP -- "道路 / 距离 / 到达时间" --> VC
     CSC -- "切换 Context80" --> VC
 ```
 
@@ -166,7 +162,6 @@ Virtual Cockpit
 ### RGI 导航信息链路
 
 - `libcarplay_rgi_meta.so` 在原车 CarPlay 进程中接收 iAP2 RouteGuidance 导航信息，通过本机 TCP 19810 交给 Java HMI。
-- Java HMI 把当前道路、剩余距离和到达时间写入仪表底部信息栏；没有有效 CarPlay 数据时交还原车显示。
 - 转向箭头和车道引导通过本机 TCP 19800 发给独立的 `maneuver_render` 进程，由它绘制到 displayable 98；该进程由 `rgi_supervisor.sh` 守护，异常退出后有限次自动重启。
 
 ### 方向盘滚轮缩放
@@ -285,7 +280,7 @@ Script not found:
 
 1. **断开 iPhone / CarPlay**，避免安装过程中正在输出导航视频。
 2. 在 `MMI-Cockpit-Carplay` 菜单中选择一种安装模式：
-   - `INSTALL WITH RGI`（推荐）：第二屏地图 + 完整 RGI（转向箭头、车道引导、底部信息栏）。
+   - `INSTALL WITH RGI`（推荐）：第二屏地图 + 完整 RGI（转向箭头、车道引导）。
    - `INSTALL NO RGI`：只显示第二屏地图，不启用 RGI 相关组件；适合只需要地图或排查 RGI 问题时使用。
 3. 等待屏幕最后出现 `RESULT:` 结论，期间不要拔卡、断电或重启。安装程序会依次执行 5 步，每一步都会实时显示进度：
 

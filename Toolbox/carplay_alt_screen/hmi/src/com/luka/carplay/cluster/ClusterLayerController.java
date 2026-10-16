@@ -33,6 +33,10 @@ public final class ClusterLayerController {
     private static final int MANEUVER      = 98;    /* maneuver_render (Software) */
     private static final int BACKING_SPORT = 101;   /* 987 KDK backing, 328x180 */
     private static final int BACKING_POPUP = 102;   /* 987 KDK backing, 210x153 */
+    /* Keep the OEM map visible through the CarPlay card.  DM opacity is 0..100;
+     * 70 matches the photographed translucent dark panel while preserving the
+     * map and route background underneath. */
+    private static final int CARPLAY_BACKING_OPACITY = 70;
     /* Stock CombiMapController/Layout slots.  Names describe the KDK stage, not the skin: the
      * in-tube values themselves differ between LayoutMIB2HighB9 and LayoutMIB2HighB9Sport. */
     private static final int LC_IN_TUBE_X = 58, LC_IN_TUBE_Y = 59;
@@ -330,10 +334,12 @@ public final class ClusterLayerController {
             int dy = popup ? geometry.popupY : geometry.inTubeY;
             int backing = popup ? BACKING_POPUP : BACKING_SPORT;
             int otherBacking = popup ? BACKING_SPORT : BACKING_POPUP;
+            int backingOpacity = carplayOpacity > 0
+                ? Math.min(carplayOpacity, CARPLAY_BACKING_OPACITY) : 0;
             dm.setCropping(MANEUVER, terminal, cx, cy, cw, ch, dx, dy, cw, ch);
             dm.setOpacity(MANEUVER, terminal, carplayOpacity);
             dm.setPosition(backing, terminal, dx, dy);
-            dm.setOpacity(backing, terminal, carplayOpacity);
+            dm.setOpacity(backing, terminal, backingOpacity);
             dm.setOpacity(otherBacking, terminal, 0);
             errorLogged = false;
         } catch (Throwable t) {

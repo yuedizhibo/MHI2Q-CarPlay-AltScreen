@@ -10,6 +10,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <signal.h>
+#include <limits.h>
 
 Private111DirectSource::Private111DirectSource(bool verbose)
     : verbose_(verbose),
@@ -318,6 +320,55 @@ bool Private111DirectSource::current_session_active() {
            hp != 0u && fp != 0u && hp == fp &&
            h264_->generation == frames_->generation &&
            h264_->stream_cookie == frames_->stream_cookie;
+}
+
+/**
+ * Check whether the mapped decoded-frame session still matches the source identity.
+ * Parameters: none.
+ * Returns: true when H264 and decoded-frame identities are active and equal.
+ */
+bool Private111DirectSource::current_frame_session_active() {
+    return current_session_active() && writer_pid_ != 0u &&
+           frames_->writer_pid == writer_pid_ &&
+           frames_->generation == generation_ &&
+           frames_->stream_cookie == stream_cookie_;
+}
+
+/**
+ * Validate and copy the producer's startup marker frame for session recovery.
+ * Parameters: marker is the ready-marker path; frame receives the validated NV12 frame.
+ * Returns: true when the marker, live producer, and copied frame all match.
+ */
+bool Private111DirectSource::read_verified_startup_frame(const char *marker,
+                                                        VideoFrame *frame) {
+    unsigned pid, gen, cookie, count, seq, ready;
+    char record[256];
+    int end = 0;
+    if (!marker || !frame) return false;
+    FILE *f = fopen(marker, "r");
+    if (!f) return false;
+    const size_t bytes = fread(record, 1, sizeof(record) - 1u, f);
+    const bool complete = !ferror(f) && feof(f);
+    fclose(f);
+    if (!complete || !bytes) return false;
+    record[bytes] = 0;
+    if (memchr(record, 0, bytes) || strchr(record, '-') || strchr(record, '+'))
+        return false;
+    if (sscanf(record, "pid=%u\ngeneration=%u\ncookie=0x%x\nframes=%u\nsequence=%u\nready=%u%n",
+               &pid, &gen, &cookie, &count, &seq, &ready, &end) != 6 ||
+        end <= 0 || (size_t)end + 1u != bytes || record[end] != '\n' ||
+        !pid || pid > INT_MAX || !gen || count < 2u || !seq || ready != 1u ||
+        kill((pid_t)pid, 0) != 0) return false;
+
+    /* The normal supervisor has already seen two producer frames. Reuse that
+     * proof only with a stable NV12 copy from the same live H264/frame session.
+     * Static maps need no additional frame just to start the intro. */
+    if (!current_session_active() || !read_frame(frame) ||
+        !current_frame_session_active() || !h264_ready_ ||
+        writer_pid_ != pid || generation_ != gen || stream_cookie_ != cookie ||
+        last_frame_count_ < count || (int32_t)(last_sequence_ - seq) < 0 ||
+        kill((pid_t)pid, 0) != 0) return false;
+    return true;
 }
 
 bool Private111DirectSource::read_frame(VideoFrame *frame) {

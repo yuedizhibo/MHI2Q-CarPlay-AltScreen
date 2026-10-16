@@ -15,6 +15,18 @@ public:
     bool init();
     bool read_frame(VideoFrame *frame);
     bool current_session_active();
+    /**
+     * Check whether the mapped decoded-frame session still matches the source identity.
+     * Parameters: none.
+     * Returns: true when H264 and decoded-frame identities are active and equal.
+     */
+    bool current_frame_session_active();
+    /**
+     * Validate and copy the producer's startup marker frame for session recovery.
+     * Parameters: marker is the ready-marker path; frame receives the validated NV12 frame.
+     * Returns: true when the marker, live producer, and copied frame all match.
+     */
+    bool read_verified_startup_frame(const char *marker, VideoFrame *frame);
     void shutdown();
 
     bool h264_ready() const { return h264_ready_; }

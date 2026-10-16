@@ -15,6 +15,8 @@ public final class OemMapStartupGate {
     private static volatile boolean ready;
     private static volatile boolean pending;
     private static final byte[] READY = new byte[] { 1 };
+    private static final Object WAKE = new Object();
+    private static final long PROBE_MS = 200L;
 
     private OemMapStartupGate() { }
 
@@ -24,7 +26,7 @@ public final class OemMapStartupGate {
         CarplayBus.getInstance().start(); /* idempotent */
         Thread worker = new Thread(new Runnable() {
             public void run() {
-                Log.i("OemMapGate", "WAIT source=MapKombi.isInitialized capabilities=EARLY UI=DEFERRED");
+                Log.i("OemMapGate", "WAIT source=MapKombi.isInitialized probe_ms=200 ready_wake=IMMEDIATE capabilities=EARLY UI=DEFERRED");
                 long nextWaitLog = System.currentTimeMillis() + 60000L;
                 while (true) {
                     if (!ready) scheduleProbe();
@@ -32,9 +34,16 @@ public final class OemMapStartupGate {
                         Log.i("OemMapGate", "WAIT map_not_initialized=1 probe_pending=" + pending);
                         nextWaitLog = System.currentTimeMillis() + 60000L;
                     }
-                    if (ready) announce();
-                    try { Thread.sleep(ready ? 1000L : 500L); }
-                    catch (InterruptedException ignored) { }
+                    boolean observedReady = ready;
+                    if (observedReady) announce();
+                    synchronized (WAKE) {
+                        /* A probe may finish between announce and wait. Do not
+                         * lose that notification or delay its first READY. */
+                        if (ready == observedReady) {
+                            try { WAKE.wait(observedReady ? 1000L : PROBE_MS); }
+                            catch (InterruptedException ignored) { }
+                        }
+                    }
                 }
             }
         }, "carplay-oem-map-gate");
@@ -113,7 +122,10 @@ public final class OemMapStartupGate {
                         if (navigation.getMapManager() != null &&
                             navigation.getMapManager().getMapKombi() != null &&
                             navigation.getMapManager().getMapKombi().isInitialized()) {
-                            ready = true;
+                            synchronized (WAKE) {
+                                ready = true;
+                                WAKE.notifyAll();
+                            }
                             Log.i("OemMapGate", "READY source=MapKombi.isInitialized boot_latched=1");
                         }
                     } catch (Throwable ignored) {

@@ -158,7 +158,7 @@ while [ ! -f "$STOP_GUARD" ]; do
       echo "STREAM_READY key=$KEY reason=$RESTART_REASON action=START_DISPLAY recover_current_session=1" >> "$LOGFILE"
       touch "$ACTIVE"
       start_rc=0
-      if ALT111_MIRROR_RESTART_REASON="$RESTART_REASON" ALT111_STREAM_SUPERVISED=1 ALT111_RECOVER_CURRENT_SESSION=1 /bin/sh "$START" 9>&- >> "$LOGFILE" 2>&1; then
+      if ALT111_STREAM_READY_FILE="$STREAM_READY" ALT111_MIRROR_RESTART_REASON="$RESTART_REASON" ALT111_STREAM_SUPERVISED=1 ALT111_RECOVER_CURRENT_SESSION=1 /bin/sh "$START" 9>&- >> "$LOGFILE" 2>&1; then
         if ! mirror_running; then
           start_rc=3
         fi

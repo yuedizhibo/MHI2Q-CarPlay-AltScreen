@@ -65,6 +65,9 @@
 
 !/Toolbox/GEM/mqb-carplayAltScreen.esd
 
+# Vehicle-test reports.
+!/docs/vehicle-tests/*.md
+
 # Exact SD runtime closure. Some installer/diagnostic filenames contain "test";
 # those are vehicle runtime scripts and must not be removed by a blanket test rule.
 !/Toolbox/carplay_alt_screen/hmi/BUILD_INFO.txt

@@ -81,7 +81,7 @@ This project is designed for the Audi **MHI2Q** platform and displays the **nati
 >
 > This is not a demonstration build. The current CarPlay AltScreen functionality is already usable in a real vehicle.
 >
-> This project was originally developed around our own vehicles and day-to-day use cases. **China-region (CN) AUG22 firmware has been tested in a vehicle and works normally.** Some European-region (ER) AUG22 firmware has been reported working in vehicles by users (for example `MHI2Q_ER_AUG22_P5092` / `P5152`, MU 1329). Other ER versions and firmware for US and other regions may have unknown bugs and are **not guaranteed to work 100%**; assess the risk yourself and keep your stock backup. The MHI2 platform is not supported. Do not bypass the installer's firmware checks to force installation.
+> This project was originally developed around our own vehicles and day-to-day use cases. **China-region (CN) AUG22 firmware has been tested in a vehicle and works normally.** Some European-region (ER) AUG22 firmware has been reported working in vehicles by users (for example `MHI2Q_ER_AUG22_P5092` / `P5152`, MU 1329). **US-region (US) AUG22 firmware `MHI2Q_US_AUG22_P4246`, MU 1320 has been vehicle-tested (2018 Audi Q5, North America, V3.8) — see [docs/vehicle-tests](docs/vehicle-tests/2018-audi-q5-us-aug22-p4246.md).** Other ER / US versions and firmware for other regions may have unknown bugs and are **not guaranteed to work 100%**; assess the risk yourself and keep your stock backup. The MHI2 platform is not supported. Do not bypass the installer's firmware checks to force installation.
 >
 > **Shared free of charge.** The source and installation packages are available for free on GitHub; do not pay for them.
 >
@@ -138,7 +138,8 @@ This project is designed for the Audi **MHI2Q** platform and displays the **nati
 | Firmware version | **AUG22**; the installer checks the head unit's firmware version and refuses anything other than AUG22 |
 | China-region (CN) firmware | ✅ Vehicle-tested and works normally |
 | Some European-region (ER) firmware | ✅ Reported working in vehicles by users (for example `MHI2Q_ER_AUG22_P5092` / `P5152`, MU 1329) |
-| Other ER versions, US and other regional firmware | ⚠️ May have unknown bugs; not guaranteed to work 100% |
+| US-region (US) firmware | ✅ Vehicle-tested: `MHI2Q_US_AUG22_P4246`, MU 1320 (2018 Audi Q5, North America, V3.8) — see [docs/vehicle-tests](docs/vehicle-tests/2018-audi-q5-us-aug22-p4246.md) |
+| Other ER / US versions and other regional firmware | ⚠️ May have unknown bugs; not guaranteed to work 100% |
 | Wireless CarPlay adapter | ✅ 君用 (Junyong) **M2Pro** on its latest beta firmware: tested with full support for the cluster display, RGI, wheel zoom and CarPlay projection |
 | iPhone iOS version | ✅ **iOS 26** recommended; ⚠️ below iOS 18, Baidu Maps may not support the cluster display and Amap (Gaode) may show the map with the wrong aspect ratio |
 
@@ -498,7 +499,8 @@ main
 └── AUG22 / V3.8 Fix1
     ├── China-region (CN) firmware: vehicle-tested and working
     ├── Some European-region (ER) firmware: reported working by users (P5092 / P5152, MU 1329)
-    └── Other regional firmware: may have unknown bugs; not guaranteed to work 100%
+    ├── US-region (US) firmware: vehicle-tested (MHI2Q_US_AUG22_P4246, MU 1320 — 2018 Audi Q5)
+    └── Other ER / US versions and other regional firmware: may have unknown bugs; not guaranteed to work 100%
 ~~~
 
 The current public release prioritizes stable installation, normal use, and reliable recovery.

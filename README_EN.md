@@ -298,6 +298,7 @@ Build output goes to `dev-build/` or `mirror_display/build/` (not tracked in git
 > - After the upstream Toolbox is working, load this project through **`MQBCoding → Update Toolbox`** in the green menu.
 > - If `Update Toolbox` reports `Script not found` or `/eso/hmi/engdefs/scripts/mqb/update_toolbox.sh` is missing, repair/reinstall the upstream Toolbox first.
 > - **Upgrading from an older version no longer needs a manual restore**: the installer removes the old version automatically before installing. See section 8.
+> - Alternative: install over SSH without an SD card — see [Tools/ansible](Tools/ansible/README.md).
 
 ### 1. Confirm that the upstream MIB2 Toolbox works
 

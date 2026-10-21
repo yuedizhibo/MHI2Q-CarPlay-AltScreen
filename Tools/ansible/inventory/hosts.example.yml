@@ -1,0 +1,18 @@
+# Copy to inventory/hosts.yml (gitignored) and fill in your unit.
+# The head unit has no Python interpreter, so the playbook talks to it
+# exclusively through `raw` (shell) and scp — see Tools/ansible/README.md.
+all:
+  children:
+    mhi2q:
+      hosts:
+        mmi:
+          ansible_host: 192.0.2.10
+          ansible_user: root
+          ansible_password: CHANGE_ME
+          # Alternative: key/agent auth — drop ansible_password and use
+          # ansible_ssh_private_key_file: ~/.ssh/id_rsa
+          # ansible_ssh_common_args: '-o ProxyJump=user@jumphost'
+      vars:
+        # PATH the unit needs for cksum/tar/cksum helpers; matches the
+        # stock MHI2Q environment.
+        qnx_path: /proc/boot:/bin:/usr/bin:/sbin:/usr/sbin:/armle/bin:/armle/scripts:/mnt/app/armle/bin:/mnt/app/armle/usr/bin:/eso/bin:/eso/bin/apps

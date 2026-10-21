@@ -1,0 +1,5 @@
+# Local run output (fetched backups, logs, staged upload artifacts).
+output/
+
+# Real inventory with unit address/credentials — never commit.
+inventory/hosts.yml

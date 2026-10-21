@@ -1,0 +1,657 @@
+---
+# AltScreen release over SSH via the internal staging volume
+# (/mnt/ota/carplay-altscreen) — no SD card required.
+#
+# The unit has no Python: every remote step is `raw` POSIX/QNX shell and
+# every file transfer is scp from localhost. The playbook only ever calls
+# the upstream Toolbox scripts; it never edits /mnt/app or /mnt/system
+# itself and it NEVER reboots the unit.
+#
+# Actions (altscreen_action):
+#   status  — identity + staged/install status            (default)
+#   stage   — verify + upload a release into the volume
+#   install — run the upstream installer from the volume
+#   restore — run RESTORE ORIGINAL from the volume
+#   logs    — fetch runtime logs and the backup/log dir
+#
+# Required extra vars:
+#   stage:           -e altscreen_release_dir=/path/to/extracted/V3.8
+#   install/restore: -e altscreen_expected_train=MHI2Q_US_AUG22_P4246
+#   optional:        -e altscreen_rgi_mode=WITH|NO (WITH)
+#                    -e altscreen_card_mode=NO|WITH (NO)
+#                    -e altscreen_force_restage=true
+#
+# Example:
+#   ansible-playbook -i inventory/hosts.yml playbooks/altscreen.yml \
+#     -e altscreen_action=stage -e altscreen_release_dir=/tmp/V3.8
+
+- name: AltScreen over SSH (internal staging volume)
+  hosts: mhi2q
+  gather_facts: false
+  vars:
+    altscreen_action: status
+    altscreen_volume: /mnt/ota/carplay-altscreen
+    altscreen_rgi_mode: WITH
+    altscreen_card_mode: "NO"
+    altscreen_run_timeout: 600
+    altscreen_stage_tar_remote: /tmp/altscreen-stage.tar
+    altscreen_stage_manifest_remote: /tmp/altscreen-cksums
+    altscreen_manifest_helper: "{{ playbook_dir }}/../files/cksum_manifest.sh"
+  tasks:
+    - name: Validate action
+      ansible.builtin.assert:
+        that:
+          - altscreen_action in ['status', 'stage', 'install', 'restore', 'logs']
+        fail_msg: "altscreen_action must be status|stage|install|restore|logs"
+
+    - name: Freeze one timestamp for all local output paths
+      ansible.builtin.set_fact:
+        run_tag: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+    - name: Resolve local output dir
+      ansible.builtin.set_fact:
+        altscreen_local_dir: "{{ playbook_dir }}/../output/{{ inventory_hostname }}/{{ run_tag }}"
+
+    - name: Create local output dir
+      ansible.builtin.command: "mkdir -p {{ altscreen_local_dir }}"
+      delegate_to: localhost
+      changed_when: true
+      when: altscreen_action != 'status'
+
+    - name: Check sshpass availability when password auth is configured
+      when: altscreen_action != 'status' and ansible_password is defined
+      block:
+        - name: Locate sshpass on the controller
+          ansible.builtin.command: sshpass -V
+          delegate_to: localhost
+          register: altscreen_sshpass
+          changed_when: false
+          failed_when: false
+
+        - name: Require sshpass for scp password auth
+          ansible.builtin.assert:
+            that:
+              - altscreen_sshpass.rc == 0
+            fail_msg: >-
+              ansible_password is set but sshpass is not installed on the
+              controller; scp cannot answer a password prompt. Install
+              sshpass or switch to key/agent auth
+              (ansible_ssh_private_key_file).
+
+    - name: Build the scp command prefix
+      ansible.builtin.set_fact:
+        altscreen_scp: >-
+          {{ 'sshpass -e ' if ansible_password is defined else '' }}scp
+          {{ ansible_ssh_common_args | default('') }}
+
+    - name: Read unit identity (train/MU)
+      ansible.builtin.raw: |
+        export PATH={{ qnx_path }}
+        set -e
+        train=$(sed -n "s/^Current train = '\([^']*\)'.*/\1/p" /net/rcc/dev/shmem/version.txt)
+        mu=$(sed -n "s/^MainUnit version = '\([^']*\)'.*/\1/p" /net/rcc/dev/shmem/version.txt)
+        echo "train=$train"
+        echo "mu=$mu"
+      changed_when: false
+      register: altscreen_identity
+
+    - name: Unit identity
+      ansible.builtin.debug:
+        msg: "{{ altscreen_identity.stdout_lines }}"
+
+    - name: Require altscreen_expected_train for mutating actions
+      ansible.builtin.assert:
+        that:
+          - altscreen_expected_train is defined
+        fail_msg: >-
+          install/restore require -e
+          altscreen_expected_train=MHI2Q_<region>_<train>_<version>; the
+          playbook refuses to mutate a unit whose firmware train was not
+          confirmed.
+      when: altscreen_action in ['install', 'restore']
+
+    - name: Firmware train gate (exact match)
+      ansible.builtin.assert:
+        that:
+          - "('train=' + altscreen_expected_train) in altscreen_identity.stdout_lines"
+        fail_msg: >-
+          firmware train mismatch: unit reported
+          {{ altscreen_identity.stdout_lines }}, expected
+          {{ altscreen_expected_train }}. Refusing to mutate.
+      when: altscreen_action in ['install', 'restore']
+
+    - name: Require a staged volume for install/restore
+      ansible.builtin.raw: |
+        export PATH={{ qnx_path }}
+        if [ -d "{{ altscreen_volume }}/Toolbox" ]; then
+          echo "STAGED=yes volume={{ altscreen_volume }}"
+        else
+          echo "STAGED=no volume={{ altscreen_volume }}"
+          echo "run altscreen_action=stage first" >&2
+          exit 1
+        fi
+      changed_when: false
+      when: altscreen_action in ['install', 'restore']
+
+    # ---------------- status ----------------
+
+    - name: Report staging + installed status
+      when: altscreen_action == 'status'
+      block:
+        - name: Probe staged volume and installed status
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            ALTS_VOLUME={{ altscreen_volume }}
+            export ALTS_VOLUME
+            if [ -d "{{ altscreen_volume }}/Toolbox" ]; then
+              echo "STAGED=yes volume={{ altscreen_volume }}"
+              [ -d "{{ altscreen_volume }}/MMI-Cockpit-Carplay" ] &&
+                echo "BACKUP_DIR=present {{ altscreen_volume }}/MMI-Cockpit-Carplay"
+              sh "{{ altscreen_volume }}/Toolbox/scripts/status_mmi_cockpit_carplay_test.sh" || true
+            else
+              echo "STAGED=no volume={{ altscreen_volume }}"
+            fi
+          changed_when: false
+          register: altscreen_status
+
+        - name: Status output
+          ansible.builtin.debug:
+            msg: "{{ altscreen_status.stdout_lines }}"
+
+    # ---------------- stage ----------------
+
+    - name: Stage a verified release into the volume
+      when: altscreen_action == 'stage'
+      block:
+        - name: Require altscreen_release_dir
+          ansible.builtin.assert:
+            that:
+              - altscreen_release_dir is defined
+            fail_msg: "stage requires -e altscreen_release_dir=/path/to/extracted/release (must contain Toolbox/ and SHA256SUMS-SD.txt)"
+
+        - name: Check release dir structure locally
+          ansible.builtin.shell: |
+            [ -d "{{ altscreen_release_dir }}/Toolbox" ] &&
+            [ -f "{{ altscreen_release_dir }}/SHA256SUMS-SD.txt" ] &&
+            [ -f "{{ altscreen_release_dir }}/LICENSE" ]
+          changed_when: false
+          args:
+            chdir: "{{ altscreen_release_dir }}"
+          delegate_to: localhost
+          register: altscreen_release_shape
+          failed_when: false
+
+        - name: Require Toolbox/, SHA256SUMS-SD.txt and LICENSE
+          ansible.builtin.assert:
+            that:
+              - altscreen_release_shape.rc == 0
+            fail_msg: "{{ altscreen_release_dir }} must contain Toolbox/, SHA256SUMS-SD.txt and LICENSE"
+
+        - name: Verify release sha256 manifest locally
+          ansible.builtin.shell: |
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c SHA256SUMS-SD.txt
+            else
+              shasum -a 256 -c SHA256SUMS-SD.txt
+            fi
+          changed_when: false
+          args:
+            chdir: "{{ altscreen_release_dir }}"
+          delegate_to: localhost
+          register: altscreen_sha_check
+          failed_when: false
+
+        - name: Refuse a corrupt or partial release
+          ansible.builtin.assert:
+            that:
+              - altscreen_sha_check.rc == 0
+            fail_msg: >-
+              SHA256SUMS-SD.txt verification failed inside
+              {{ altscreen_release_dir }}; refusing to stage a corrupt or
+              partial release.
+
+        - name: Generate POSIX-cksum manifest of Toolbox/ locally
+          ansible.builtin.shell: |
+            sh "{{ altscreen_manifest_helper }}" Toolbox > "{{ altscreen_local_dir }}/Toolbox.cksums"
+          args:
+            chdir: "{{ altscreen_release_dir }}"
+          delegate_to: localhost
+          changed_when: true
+
+        - name: Build deterministic Toolbox tar locally
+          ansible.builtin.shell: |
+            set -o pipefail
+            find Toolbox -type f | LC_ALL=C sort | tar -cf "{{ altscreen_local_dir }}/altscreen-stage.tar" -T -
+          args:
+            chdir: "{{ altscreen_release_dir }}"
+          delegate_to: localhost
+          environment:
+            COPYFILE_DISABLE: "1"  # macOS tar: no AppleDouble ._* sidecars
+          changed_when: true
+
+        - name: Measure the stage tar
+          ansible.builtin.command: "wc -c {{ altscreen_local_dir }}/altscreen-stage.tar"
+          delegate_to: localhost
+          register: altscreen_tar_wc
+          changed_when: false
+
+        - name: Compute required free space (2x tar + 32 MB headroom)
+          ansible.builtin.set_fact:
+            altscreen_need_kb: "{{ ((altscreen_tar_wc.stdout.split()[0] | int) // 1024) * 2 + 32768 }}"
+
+        - name: Free-space gate on the staging filesystem
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            vol="{{ altscreen_volume }}"; df_target=${vol%/*}
+            df -k "$df_target"
+            set -- $(df -k "$df_target" | tail -1)
+            avail_kb=${4:-}
+            case "$avail_kb" in
+              ''|*[!0-9]*)
+                echo "SPACE_CHECK=UNPARSEABLE field4='$avail_kb'" >&2
+                echo "QNX df format unexpected; inspect the df output above, then retry with -e altscreen_skip_space_check=true" >&2
+                exit 3;;
+            esac
+            echo "SPACE_CHECK free_kb=$avail_kb need_kb={{ altscreen_need_kb }}"
+            if [ "$avail_kb" -lt "{{ altscreen_need_kb }}" ]; then
+              echo "SPACE_CHECK=INSUFFICIENT free_kb=$avail_kb need_kb={{ altscreen_need_kb }}" >&2
+              exit 4
+            fi
+          changed_when: false
+          when: not (altscreen_skip_space_check | default(false) | bool)
+
+        - name: Upload cksum manifest for the pre-stage probe
+          ansible.builtin.command: >-
+            {{ altscreen_scp }} {{ altscreen_local_dir }}/Toolbox.cksums
+            {{ ansible_user }}@{{ ansible_host }}:{{ altscreen_stage_manifest_remote }}
+          delegate_to: localhost
+          environment:
+            SSHPASS: "{{ ansible_password | default('') }}"
+          changed_when: true
+
+        - name: Compare any existing staged Toolbox against the release
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            vol={{ altscreen_volume }}
+            mf={{ altscreen_stage_manifest_remote }}
+            file_cksum(){ set -- $(cksum < "$1" 2>/dev/null) || return 1; [ -n "${2:-}" ] || return 1; printf '%s %s\n' "$1" "$2"; }
+            if [ ! -d "$vol/Toolbox" ]; then
+              echo "STAGE=EMPTY"
+              exit 0
+            fi
+            fail=0
+            while IFS=' ' read -r crc sz rel; do
+              [ -n "${rel:-}" ] || continue
+              got=$(file_cksum "$vol/$rel") || got=""
+              if [ "$got" != "$crc $sz" ]; then
+                echo "MISMATCH: $rel"
+                fail=1
+              fi
+            done < "$mf"
+            if [ "$fail" -eq 0 ]; then echo "STAGE=MATCH"; else echo "STAGE=DIFFERS"; fi
+          changed_when: false
+          register: altstage_probe
+
+        - name: Refuse to clobber a differing staged volume
+          ansible.builtin.fail:
+            msg: >-
+              staged volume differs; remove {{ altscreen_volume }} on the
+              unit or set altscreen_force_restage=true. The stock backup
+              dir {{ altscreen_volume }}/MMI-Cockpit-Carplay is never
+              removed.
+          when: "'STAGE=DIFFERS' in altstage_probe.stdout and not (altscreen_force_restage | default(false) | bool)"
+
+        - name: Remove differing staged Toolbox (backup dir untouched)
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            set -e
+            rm -rf "{{ altscreen_volume }}/Toolbox"
+          changed_when: true
+          when: "'STAGE=DIFFERS' in altstage_probe.stdout"
+
+        - name: Upload + extract + verify the release
+          when: "'STAGE=MATCH' not in altstage_probe.stdout"
+          block:
+            - name: Upload stage tar
+              ansible.builtin.command: >-
+                {{ altscreen_scp }} {{ altscreen_local_dir }}/altscreen-stage.tar
+                {{ ansible_user }}@{{ ansible_host }}:{{ altscreen_stage_tar_remote }}
+              delegate_to: localhost
+              environment:
+                SSHPASS: "{{ ansible_password | default('') }}"
+              changed_when: true
+
+            - name: Extract stage tar on the unit
+              ansible.builtin.raw: |
+                export PATH={{ qnx_path }}
+                set -e
+                mkdir -p "{{ altscreen_volume }}"
+                cd "{{ altscreen_volume }}"
+                tar xf "{{ altscreen_stage_tar_remote }}"
+                rm -f "{{ altscreen_stage_tar_remote }}"
+              changed_when: true
+
+            - name: Persist manifest + release metadata on the volume
+              ansible.builtin.raw: |
+                export PATH={{ qnx_path }}
+                set -e
+                mv "{{ altscreen_stage_manifest_remote }}" "{{ altscreen_volume }}/CKSUMS"
+              changed_when: true
+
+            - name: Upload SHA256SUMS-SD.txt and LICENSE to volume root
+              ansible.builtin.command: >-
+                {{ altscreen_scp }}
+                {{ altscreen_release_dir }}/SHA256SUMS-SD.txt
+                {{ altscreen_release_dir }}/LICENSE
+                {{ ansible_user }}@{{ ansible_host }}:{{ altscreen_volume }}/
+              delegate_to: localhost
+              environment:
+                SSHPASS: "{{ ansible_password | default('') }}"
+              changed_when: true
+
+            - name: Verify every staged file against the manifest
+              ansible.builtin.raw: |
+                export PATH={{ qnx_path }}
+                vol={{ altscreen_volume }}
+                file_cksum(){ set -- $(cksum < "$1" 2>/dev/null) || return 1; [ -n "${2:-}" ] || return 1; printf '%s %s\n' "$1" "$2"; }
+                fail=0
+                while IFS=' ' read -r crc sz rel; do
+                  [ -n "${rel:-}" ] || continue
+                  got=$(file_cksum "$vol/$rel") || got=""
+                  if [ "$got" != "$crc $sz" ]; then
+                    echo "MISMATCH: $rel ($got != $crc $sz)"
+                    fail=1
+                  fi
+                done < "$vol/CKSUMS"
+                want=$(wc -l < "$vol/CKSUMS" | tr -d ' '); have=$(find "$vol/Toolbox" -type f | wc -l | tr -d ' ')
+                [ "$want" = "$have" ] || { echo "EXTRA_FILES: manifest=$want on_unit=$have"; fail=1; }
+                [ "$fail" -eq 0 ] || { echo "REMOTE_VERIFY=FAIL"; exit 1; }
+                echo "REMOTE_VERIFY=PASS files=$want"
+              changed_when: false
+
+        - name: Drop the temporary probe manifest when already staged
+          ansible.builtin.raw: |
+            rm -f "{{ altscreen_stage_manifest_remote }}"
+          when: "'STAGE=MATCH' in altstage_probe.stdout"
+          changed_when: false
+
+        - name: Optionally restore a fetched backup dir to the volume
+          when: altscreen_backup_dir is defined
+          block:
+            - name: Refuse to overwrite an existing backup dir
+              ansible.builtin.raw: |
+                export PATH={{ qnx_path }}
+                if [ -e "{{ altscreen_volume }}/MMI-Cockpit-Carplay" ]; then
+                  echo "BACKUP_DIR=exists — refusing to overwrite {{ altscreen_volume }}/MMI-Cockpit-Carplay" >&2
+                  exit 1
+                fi
+                echo "BACKUP_DIR=absent"
+              changed_when: false
+
+            # scp -r cannot create a missing remote directory (SFTP realpath
+            # fails), so the backup travels as a tar + cksum manifest like
+            # the Toolbox payload.
+            - name: Build backup tar + cksum manifest locally
+              ansible.builtin.shell: |
+                set -o pipefail
+                sh "{{ altscreen_manifest_helper }}" . > "{{ altscreen_local_dir }}/backup.cksums"
+                find . -type f | LC_ALL=C sort | tar -cf "{{ altscreen_local_dir }}/altscreen-backup.tar" -T -
+              args:
+                chdir: "{{ altscreen_backup_dir }}"
+              delegate_to: localhost
+              environment:
+                COPYFILE_DISABLE: "1"
+              changed_when: true
+
+            - name: Upload backup tar + manifest
+              ansible.builtin.command: >-
+                {{ altscreen_scp }}
+                {{ altscreen_local_dir }}/altscreen-backup.tar
+                {{ altscreen_local_dir }}/backup.cksums
+                {{ ansible_user }}@{{ ansible_host }}:/tmp/
+              delegate_to: localhost
+              environment:
+                SSHPASS: "{{ ansible_password | default('') }}"
+              changed_when: true
+
+            - name: Extract and verify the backup dir on the unit
+              ansible.builtin.raw: |
+                export PATH={{ qnx_path }}
+                dst="{{ altscreen_volume }}/MMI-Cockpit-Carplay"
+                mkdir -p "$dst" && cd "$dst" && tar -xf /tmp/altscreen-backup.tar || { echo "BACKUP_EXTRACT=FAIL" >&2; exit 1; }
+                file_cksum(){ set -- $(cksum < "$1" 2>/dev/null) || return 1; [ -n "${2:-}" ] || return 1; printf '%s %s\n' "$1" "$2"; }
+                bad=0
+                while IFS=' ' read -r crc sz rel; do
+                  [ -n "${rel:-}" ] || continue
+                  got=$(file_cksum "$rel") || got=""
+                  [ "$got" = "$crc $sz" ] || { echo "MISMATCH: $rel ($got != $crc $sz)" >&2; bad=1; }
+                done < /tmp/backup.cksums
+                want=$(wc -l < /tmp/backup.cksums | tr -d ' '); have=$(find . -type f | wc -l | tr -d ' ')
+                [ "$want" = "$have" ] || { echo "EXTRA_FILES: manifest=$want on_unit=$have" >&2; bad=1; }
+                rm -f /tmp/altscreen-backup.tar /tmp/backup.cksums
+                [ "$bad" -eq 0 ] || { echo "BACKUP_UPLOAD=FAIL" >&2; exit 1; }
+                echo "BACKUP_UPLOAD=PASS $dst"
+              changed_when: true
+
+        - name: Stage result
+          ansible.builtin.debug:
+            msg: "{{ altstage_probe.stdout_lines }} — volume {{ altscreen_volume }} ready"
+
+    # ---------------- install ----------------
+
+    - name: Run the upstream installer from the staging volume
+      when: altscreen_action == 'install'
+      block:
+        - name: Validate install modes
+          ansible.builtin.assert:
+            that:
+              - altscreen_rgi_mode in ['WITH', 'NO']
+              - altscreen_card_mode in ['NO', 'WITH']
+            fail_msg: "altscreen_rgi_mode must be WITH|NO, altscreen_card_mode NO|WITH"
+
+        - name: Run altscreen_install.sh (bounded run)
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            ALTS_VOLUME={{ altscreen_volume }}
+            export ALTS_VOLUME
+            vol={{ altscreen_volume }}
+            LOG=$vol/install_ansible.log
+            : >"$LOG"
+
+            run_bounded() {
+              _log=$1; _limit=$2; shift 2
+              rm -f "$_log.rc"
+              if command -v on >/dev/null 2>&1; then
+                # QNX `on -s` runs the command as leader of a NEW PROCESS
+                # GROUP, so the whole tree can be signalled at once.
+                on -s /bin/sh -c 'rc=0; "$@" || rc=$?; echo "$rc" >"'"$_log"'.rc"; exit "$rc"' sh "$@" >"$_log" 2>&1 &
+              else
+                /bin/sh -c 'rc=0; "$@" || rc=$?; echo "$rc" >"'"$_log"'.rc"; exit "$rc"' sh "$@" >"$_log" 2>&1 &
+              fi
+              _pid=$!
+              _elapsed=0
+              while kill -0 "$_pid" 2>/dev/null; do
+                if [ "$_elapsed" -ge "$_limit" ]; then
+                  echo "TIMEOUT after ${_limit}s" >>"$_log"
+                  kill -s TERM -- "-$_pid" 2>/dev/null || kill -s TERM -- "$_pid" 2>/dev/null
+                  sleep 3
+                  kill -s KILL -- "-$_pid" 2>/dev/null || kill -s KILL -- "$_pid" 2>/dev/null
+                  wait "$_pid" 2>/dev/null
+                  return 124
+                fi
+                sleep 5
+                _elapsed=$((_elapsed + 5))
+              done
+              wait "$_pid" 2>/dev/null
+              [ -f "$_log.rc" ] && return "$(cat "$_log.rc")"
+              return 1
+            }
+
+            ALTS_INSTALL_RGI_MODE={{ altscreen_rgi_mode }}
+            ALTS_INSTALL_CARD_MODE={{ altscreen_card_mode }}
+            export ALTS_INSTALL_RGI_MODE ALTS_INSTALL_CARD_MODE
+            run_bounded "$LOG" {{ altscreen_run_timeout }} \
+              /bin/sh "$vol/Toolbox/scripts/altscreen_install.sh"
+            rc=$?
+            cat "$LOG"
+            if [ $rc -ne 0 ]; then
+              echo "INSTALL_RUN=FAIL rc=$rc"
+              exit 1
+            fi
+            if ! grep -q 'RESULT: SUCCESS' "$LOG"; then
+              echo "INSTALL_RUN=FAIL reason=missing RESULT: SUCCESS"
+              exit 1
+            fi
+            echo "INSTALL_RUN=PASS log=$LOG"
+          changed_when: true
+          register: altscreen_install
+
+        - name: Check backup dir exists before fetching
+          ansible.builtin.raw: |
+            [ -d "{{ altscreen_volume }}/MMI-Cockpit-Carplay" ] &&
+              echo "BACKUP=present" || { echo "BACKUP=missing"; exit 1; }
+          changed_when: false
+
+        - name: Fetch stock backup + logs + state (recovery copy)
+          ansible.builtin.command: >-
+            {{ altscreen_scp }} -r
+            {{ ansible_user }}@{{ ansible_host }}:{{ altscreen_volume }}/MMI-Cockpit-Carplay
+            {{ altscreen_local_dir }}/
+          delegate_to: localhost
+          environment:
+            SSHPASS: "{{ ansible_password | default('') }}"
+          changed_when: true
+
+        - name: Install outcome
+          ansible.builtin.debug:
+            msg: >-
+              INSTALL COMPLETE. Recovery copy fetched to
+              {{ altscreen_local_dir }}/MMI-Cockpit-Carplay — keep it.
+              === NO REBOOT PERFORMED === perform a full head-unit power
+              cycle to activate the new components.
+
+    # ---------------- restore ----------------
+
+    - name: Run RESTORE ORIGINAL from the staging volume
+      when: altscreen_action == 'restore'
+      block:
+        - name: Run stop_mmi_cockpit_carplay_test.sh (bounded run)
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            ALTS_VOLUME={{ altscreen_volume }}
+            export ALTS_VOLUME
+            vol={{ altscreen_volume }}
+            LOG=$vol/restore_ansible.log
+            : >"$LOG"
+
+            run_bounded() {
+              _log=$1; _limit=$2; shift 2
+              rm -f "$_log.rc"
+              if command -v on >/dev/null 2>&1; then
+                on -s /bin/sh -c 'rc=0; "$@" || rc=$?; echo "$rc" >"'"$_log"'.rc"; exit "$rc"' sh "$@" >"$_log" 2>&1 &
+              else
+                /bin/sh -c 'rc=0; "$@" || rc=$?; echo "$rc" >"'"$_log"'.rc"; exit "$rc"' sh "$@" >"$_log" 2>&1 &
+              fi
+              _pid=$!
+              _elapsed=0
+              while kill -0 "$_pid" 2>/dev/null; do
+                if [ "$_elapsed" -ge "$_limit" ]; then
+                  echo "TIMEOUT after ${_limit}s" >>"$_log"
+                  kill -s TERM -- "-$_pid" 2>/dev/null || kill -s TERM -- "$_pid" 2>/dev/null
+                  sleep 3
+                  kill -s KILL -- "-$_pid" 2>/dev/null || kill -s KILL -- "$_pid" 2>/dev/null
+                  wait "$_pid" 2>/dev/null
+                  return 124
+                fi
+                sleep 5
+                _elapsed=$((_elapsed + 5))
+              done
+              wait "$_pid" 2>/dev/null
+              [ -f "$_log.rc" ] && return "$(cat "$_log.rc")"
+              return 1
+            }
+
+            run_bounded "$LOG" {{ altscreen_run_timeout }} \
+              /bin/sh "$vol/Toolbox/scripts/stop_mmi_cockpit_carplay_test.sh"
+            rc=$?
+            cat "$LOG"
+            if [ $rc -ne 0 ]; then
+              echo "RESTORE_RUN=FAIL rc=$rc"
+              exit 1
+            fi
+            # console RESULT vocabulary from altscreen_console.sh
+            # (alts_ui_restore_result): SUCCESS | RECOVERED TO STOCK |
+            # NOTHING TO RESTORE | RESCUE SUCCESS are the rc=0 outcomes;
+            # FAILED / RESCUE FAILED / RESCUE REQUIRED are not.
+            if ! grep -Eq ' RESULT: (SUCCESS|RECOVERED TO STOCK|NOTHING TO RESTORE|RESCUE SUCCESS)' "$LOG"; then
+              echo "RESTORE_RUN=FAIL reason=no successful RESULT block"
+              exit 1
+            fi
+            echo "RESTORE_RUN=PASS log=$LOG"
+          changed_when: true
+          register: altscreen_restore
+
+        - name: Check backup dir still exists after restore
+          ansible.builtin.raw: |
+            [ -d "{{ altscreen_volume }}/MMI-Cockpit-Carplay" ] &&
+              echo "BACKUP=present" || { echo "BACKUP=missing"; exit 1; }
+          changed_when: false
+
+        - name: Fetch backup/log dir after restore
+          ansible.builtin.command: >-
+            {{ altscreen_scp }} -r
+            {{ ansible_user }}@{{ ansible_host }}:{{ altscreen_volume }}/MMI-Cockpit-Carplay
+            {{ altscreen_local_dir }}/
+          delegate_to: localhost
+          environment:
+            SSHPASS: "{{ ansible_password | default('') }}"
+          changed_when: true
+
+        - name: Restore outcome
+          ansible.builtin.debug:
+            msg: >-
+              RESTORE FINISHED (see RESTORE_RUN result above). Fetched
+              backup/log copy to {{ altscreen_local_dir }}.
+              === NO REBOOT PERFORMED === perform a full head-unit power
+              cycle to return to the stock configuration.
+
+    # ---------------- logs ----------------
+
+    - name: Fetch runtime logs
+      when: altscreen_action == 'logs'
+      block:
+        - name: List existing log files on the unit
+          ansible.builtin.raw: |
+            export PATH={{ qnx_path }}
+            for g in /tmp/altscreen_*.log /tmp/carplay_*.log /tmp/maneuver_render.log /tmp/mmi-mirror-*.log; do
+              [ -f "$g" ] && echo "FILE=$g"
+            done
+            [ -d "{{ altscreen_volume }}/MMI-Cockpit-Carplay/logs" ] &&
+              echo "DIR={{ altscreen_volume }}/MMI-Cockpit-Carplay/logs"
+          changed_when: false
+          register: altscreen_log_list
+
+        - name: Fetch each existing log file
+          ansible.builtin.command: >-
+            {{ altscreen_scp }} {{ ansible_user }}@{{ ansible_host }}:{{ item }}
+            {{ altscreen_local_dir }}/
+          delegate_to: localhost
+          environment:
+            SSHPASS: "{{ ansible_password | default('') }}"
+          loop: "{{ altscreen_log_list.stdout_lines | select('match', '^FILE=') | map('regex_replace', '^FILE=', '') | list }}"
+          changed_when: true
+
+        - name: Fetch the staged backup log directory
+          ansible.builtin.command: >-
+            {{ altscreen_scp }} -r
+            {{ ansible_user }}@{{ ansible_host }}:{{ altscreen_volume }}/MMI-Cockpit-Carplay/logs
+            {{ altscreen_local_dir }}/MMI-Cockpit-Carplay-logs
+          delegate_to: localhost
+          environment:
+            SSHPASS: "{{ ansible_password | default('') }}"
+          when: "altscreen_log_list.stdout_lines | select('match', '^DIR=') | list | length > 0"
+          changed_when: true
+
+        - name: Logs outcome
+          ansible.builtin.debug:
+            msg: "fetched to {{ altscreen_local_dir }}: {{ altscreen_log_list.stdout_lines }}"

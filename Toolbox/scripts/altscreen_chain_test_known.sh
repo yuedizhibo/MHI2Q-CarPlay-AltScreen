@@ -134,9 +134,13 @@ if [ "${ALTSCREEN_CHAIN_TESTING:-0}" = "1" ]; then
 else
     # Own discovery here: older Toolbox helpers only assign VOLUME and do not
     # provide mountsd_make_writable(). Do not source a version-dependent helper.
-    for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
-        if [ -d "$candidate/Toolbox" ]; then VOLUME=$candidate; break; fi
-    done
+    if [ -n "${ALTS_VOLUME:-}" ]; then
+        [ -d "$ALTS_VOLUME/Toolbox" ] && VOLUME=$ALTS_VOLUME
+    else
+        for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
+            if [ -d "$candidate/Toolbox" ]; then VOLUME=$candidate; break; fi
+        done
+    fi
     [ -n "${VOLUME:-}" ] || fail "no Toolbox SD card discovered"
     mount_rw() { mount -uw "$1" || { say "FAIL: cannot mount $1 writeable"; return 1; }; }
     mount_ro() { mount -ur "$1"; }

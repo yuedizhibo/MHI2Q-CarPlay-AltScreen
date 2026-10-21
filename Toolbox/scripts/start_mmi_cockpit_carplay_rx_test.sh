@@ -37,9 +37,13 @@ if [ "${ALTS_START_CAPTURED:-0}" != 1 ]; then
     if [ "${ALTSCREEN_CHAIN_TESTING:-0}" = 1 ]; then
         journal_volume=${ALTSCREEN_CHAIN_VOLUME:-}
     else
-        for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
-            if [ -d "$candidate/Toolbox" ]; then journal_volume=$candidate; break; fi
-        done
+        if [ -n "${ALTS_VOLUME:-}" ]; then
+            [ -d "$ALTS_VOLUME/Toolbox" ] && journal_volume=$ALTS_VOLUME
+        else
+            for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
+                if [ -d "$candidate/Toolbox" ]; then journal_volume=$candidate; break; fi
+            done
+        fi
     fi
     journal_storage=TMP
     if [ -n "$journal_volume" ] && [ -d "$journal_volume/Toolbox" ]; then
@@ -117,9 +121,13 @@ if [ "$TESTING" = 1 ]; then
     case "$DEVICE_ROOT" in /tmp/*|/var/tmp/*) ;; *) echo "FAIL: invalid ALTSCREEN_CHAIN_ROOT"; exit 2 ;; esac
     case "$VOLUME" in /tmp/*|/var/tmp/*) ;; *) echo "FAIL: invalid ALTSCREEN_CHAIN_VOLUME"; exit 2 ;; esac
 else
-    for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
-        if [ -d "$candidate/Toolbox" ]; then VOLUME=$candidate; break; fi
-    done
+    if [ -n "${ALTS_VOLUME:-}" ]; then
+        [ -d "$ALTS_VOLUME/Toolbox" ] && VOLUME=$ALTS_VOLUME
+    else
+        for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
+            if [ -d "$candidate/Toolbox" ]; then VOLUME=$candidate; break; fi
+        done
+    fi
 fi
 [ -n "$VOLUME" ] || { echo "START_FAIL_STAGE=DISCOVER_SD rc=1 reason=no_Toolbox_SD"; echo "FAIL: no Toolbox SD card discovered"; exit 1; }
 SD_RW_HELPER="$VOLUME/Toolbox/scripts/altscreen_sd_writable.sh"

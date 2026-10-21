@@ -47,7 +47,7 @@ emit_sd_diagnostics(){
   else
     echo "SD_DF=UNAVAILABLE"
   fi
-  for cand in $SD_CANDIDATES; do
+  for cand in ${ALTS_VOLUME:-} $SD_CANDIDATES; do
     if [ ! -d "$cand" ]; then
       echo "SD_CANDIDATE path=$cand present=NO"
       continue
@@ -78,9 +78,13 @@ if [ "$TESTING" = 1 ]; then
   case "$ROOT" in /tmp/*|/var/tmp/*) ;; *) echo "FAIL: invalid ALTSCREEN_CHAIN_ROOT" >&2; exit 2;; esac
   case "$VOLUME" in /tmp/*|/var/tmp/*) ;; *) echo "FAIL: invalid ALTSCREEN_CHAIN_VOLUME" >&2; exit 2;; esac
 else
-  for d in $SD_CANDIDATES; do
-    [ -d "$d/Toolbox" ] && { VOLUME=$d; break; }
-  done
+  if [ -n "${ALTS_VOLUME:-}" ]; then
+    [ -d "$ALTS_VOLUME/Toolbox" ] && VOLUME=$ALTS_VOLUME
+  else
+    for d in $SD_CANDIDATES; do
+      [ -d "$d/Toolbox" ] && { VOLUME=$d; break; }
+    done
+  fi
 fi
 [ -n "$VOLUME" ] && [ -d "$VOLUME/Toolbox" ] || { echo "RESTORE=REFUSED reason=SD_NOT_FOUND production_changed=NO"; exit 1; }
 SD_RW_HELPER="$VOLUME/Toolbox/scripts/altscreen_sd_writable.sh"

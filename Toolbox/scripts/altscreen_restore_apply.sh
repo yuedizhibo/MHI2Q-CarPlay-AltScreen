@@ -27,9 +27,13 @@ if [ "$TESTING" = 1 ]; then
     DEVICE_ROOT=${ALTSCREEN_CHAIN_ROOT:-}
     VOLUME=${ALTSCREEN_CHAIN_VOLUME:-}
 else
-    for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
-        if [ -d "$candidate/Toolbox" ]; then VOLUME=$candidate; break; fi
-    done
+    if [ -n "${ALTS_VOLUME:-}" ]; then
+        [ -d "$ALTS_VOLUME/Toolbox" ] && VOLUME=$ALTS_VOLUME
+    else
+        for candidate in /net/mmx/fs/sda0 /net/mmx/fs/sda1 /net/mmx/fs/sdb0 /net/mmx/fs/sdb1 /fs/sda0 /fs/sda1 /fs/sdb0 /fs/sdb1; do
+            if [ -d "$candidate/Toolbox" ]; then VOLUME=$candidate; break; fi
+        done
+    fi
 fi
 
 CONTROLLER="$SCRIPTDIR/altscreen_chain_test.sh"

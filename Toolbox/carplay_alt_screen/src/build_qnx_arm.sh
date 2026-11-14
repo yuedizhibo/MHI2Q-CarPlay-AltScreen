@@ -10,6 +10,8 @@ set -eu
 export LC_ALL=C
 
 SRC="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# Source-only geometry/position regression check, before creating build output.
+python3 "$SRC/tools/validate_card_safe_area.py"
 OUT="${1:-$SRC/../build}"
 STUBS="$OUT/stubs"
 INCLUDE_SRC="$OUT/source_include"
@@ -192,8 +194,11 @@ for marker in \
   '/tmp/mmi-mirror-hmi.state' \
   'safe_source=' \
   'safe_physical=' \
-  'safe_yh_mapping=vertical_inset_top72_bottom450' \
-  'safearea_revision=V35_OEM_X_VERTICAL_72_450' \
+  'safe_yh_mapping=default72_cardfull88_bottom450' \
+  'safearea_revision=V38FIX1_CARD_FULL_88_450' \
+  'logo-card-full-safe-88-450' \
+  'logo-card-small-safe-72-450' \
+  'CARD_FULL_TOP88' \
   'renderer_geometry_revision=V31_ONE_TO_ONE_CLIP' \
   'map_plane_terminal_y_policy=metadata_only_not_renderer_offset' \
   'renderer_offset=' \
@@ -243,6 +248,10 @@ DISPLAY_LF=$(printf '%s\n' "$LF" | sed "s#$OUT#<BUILD>#g")
 echo "===== BUILD_INFO (03.A) ====="
 {
   echo "component        libcarplay_altscreen.so"
+  echo "safearea_revision V38FIX1_CARD_FULL_88_450"
+  echo "safearea_card_full 300,88,840,362 bottom=450 positions=LEFT,TOP,RIGHT"
+  echo "safearea_default_full 370,72,700,378"
+  echo "safearea_small 490,72,460,378"
   echo "accepted_train   MIB2Q_AUG22_FALLBACK_ONLY"
   echo "compat_policy    KNOWN_K1004_P1404_FIRST_THEN_DYNAMIC"
   echo "abi_profiles     UNIVERSAL_DYNAMIC_RELOCATION"

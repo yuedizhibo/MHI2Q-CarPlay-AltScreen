@@ -575,20 +575,23 @@ int alt_phone_card_mode(void) {
 }
 
 /*
- * Safe-area geometry (x/w only; every view keeps y=72,h=378, bottom=450).
+ * Shared B9/Q7 safe-area geometry, independent of LEFT/TOP/RIGHT position.
  * Card profiles widen only FULL to the Logo-tree area shared by Classic and
  * Sport (300..1140), which has room for the card. SMALL never shows the card,
  * so every profile keeps the V3.5 OEM-measured SMALL rectangle (490..950) and
- * the OEM Sport SMALL pan.
+ * the OEM Sport SMALL pan. CARD FULL uses y=88,h=362; default FULL and all
+ * SMALL views retain y=72,h=378. Every measured safe region ends at y=450.
  */
-struct alt_layout_rects { uint32_t full_x, full_w, small_x, small_w; int card; };
+struct alt_layout_rects { uint32_t full_x, full_y, full_w, full_h, small_x, small_w; int card; };
 static struct alt_layout_rects alt_layout_rects(void) {
     struct alt_layout_rects r;
     r.small_x = 490u; r.small_w = 460u;
     if (alt_phone_card_profile()) {
         r.full_x = 300u; r.full_w = 840u; r.card = 1;
+        r.full_y = 88u; r.full_h = 362u;
     } else {
         r.full_x = 370u; r.full_w = 700u; r.card = 0;
+        r.full_y = 72u; r.full_h = 378u;
     }
     return r;
 }
@@ -618,19 +621,10 @@ static int alt_is_measured_b9_canvas(uint32_t display_w,
 }
 
 /*
- * V3.3 keeps the OEM-measured horizontal safeArea geometry and tunes only the
- * vertical insets after the first V3.2/V3.3 vehicle observation.
- *
- * The private111 coded canvas remains 1440x542 and the V3.1 renderer remains
- * 1:1 into the 1440x455 displayable3 viewport. CarPlay now receives a vertical
- * safe region from y=68 through bottom=450:
- *
- *   FULL  X/W stays 370/700, Y/H becomes 68/382
- *   SMALL X/W stays 490/460, Y/H becomes 68/382
- *
- * Relative to V3.1, the top edge moves down by 19 px so compass/top controls
- * have more clearance. Relative to V3.2, the bottom edge moves up by only 5 px
- * so ETA remains low while no longer using the absolute bottom edge.
+ * Keep the private111 canvas and 1:1 displayable3 projection unchanged.
+ * Only CARD FULL gains 16 pixels of top clearance (88..450); default FULL
+ * and all SMALL views keep 72..450. Use the same profile geometry here,
+ * before HMI readiness and in the predeclared /info viewAreas.
  * The OEM terminal-space map-plane Y=26 remains destination metadata only.
  */
 static int alt_load_measured_k1004_safe_area(uint32_t display_w,
@@ -652,9 +646,9 @@ static int alt_load_measured_k1004_safe_area(uint32_t display_w,
 
     /*
      * ListModel176 remains the source for the OEM horizontal bounds. V3.5
-     * preserves X/W and applies the vehicle-tuned vertical safe region
-     * y=72,h=378 (bottom=450). The Audi layout may translate the whole map
-     * plane afterwards; that compositor operation remains separate and must
+     * preserves the default 72..450 region; CARD FULL uses 88..450.
+     * The Audi layout may translate the whole map plane afterwards;
+     * that compositor operation remains separate and must
      * not be cancelled here.
      */
     if (!strcmp(view, "SMALL")) {
@@ -668,11 +662,11 @@ static int alt_load_measured_k1004_safe_area(uint32_t display_w,
         r.renderer_dy = small_dy;
     } else if (!strcmp(view, "FULL")) {
         r.x = g.full_x;
-        r.y = 72u;
+        r.y = g.full_y;
         r.w = g.full_w;
-        r.h = 378u;
+        r.h = g.full_h;
         r.physical_w = g.full_w;
-        r.physical_h = 378u;
+        r.physical_h = g.full_h;
         r.renderer_dx = 0;
         r.renderer_dy = 0;
     } else {
@@ -682,12 +676,12 @@ static int alt_load_measured_k1004_safe_area(uint32_t display_w,
 
     /*
      * Horizontal safe bounds retain the measured OEM map-local geometry.
-     * Vertically, V3.5 uses the tuned 72..450 visible-map range. The whole-map
-     * renderer translation is still applied afterwards (Sport SMALL contributes
+     * Vertically, use this view's resolved top (CARD FULL 88, otherwise 72).
+     * Whole-map renderer translation is still applied afterwards (Sport SMALL contributes
      * -476 on X and normally 0 on Y).
      */
     physical_x = (int64_t)r.x + (int64_t)r.renderer_dx;
-    physical_y = 72 + (int64_t)r.renderer_dy;
+    physical_y = (int64_t)r.y + (int64_t)r.renderer_dy;
     if (physical_x < -8192 || physical_x > 8192 ||
         physical_y < -8192 || physical_y > 8192) {
         return 0;
@@ -699,7 +693,8 @@ static int alt_load_measured_k1004_safe_area(uint32_t display_w,
     r.view[sizeof(r.view) - 1u] = 0;
     strncpy(r.layout, layout, sizeof(r.layout) - 1u);
     r.layout[sizeof(r.layout) - 1u] = 0;
-    strncpy(r.source, g.card ? "logo-card-safe-72-450" : "k1004-oem-x-vertical-72-450-v35",
+    strncpy(r.source, g.card ? (!strcmp(view, "FULL") ? "logo-card-full-safe-88-450" :
+                               "logo-card-small-safe-72-450") : "k1004-oem-x-vertical-72-450-v35",
             sizeof(r.source) - 1u);
     r.source[sizeof(r.source) - 1u] = 0;
     *out = r;
@@ -733,14 +728,16 @@ static void alt_resolve_cluster_safe_area(uint32_t display_w,
     if (alt_is_measured_b9_canvas(display_w, display_h)) {
         struct alt_layout_rects g = alt_layout_rects();
         out->x = g.full_x;
-        out->y = 72u;
+        out->y = g.full_y;
         out->w = g.full_w;
-        out->h = 378u;
+        out->h = g.full_h;
         out->physical_x = (int)g.full_x;
-        out->physical_y = 75;
+        /* Retain the legacy no-CARD diagnostic value; CARD matches its safe top. */
+        out->physical_y = g.card ? (int)g.full_y : 75;
         out->physical_w = g.full_w;
-        out->physical_h = 378u;
-        strncpy(out->source, "k1004-default-v35-72-450-before-hmi",
+        out->physical_h = g.full_h;
+        strncpy(out->source, g.card ? "logo-card-full-safe-88-450-before-hmi" :
+                                    "k1004-default-v35-72-450-before-hmi",
                 sizeof(out->source) - 1u);
     } else {
         out->w = display_w;
@@ -804,12 +801,13 @@ static cf_obj make_view_areas(uint32_t w, uint32_t h) {
  * keeps the runtime coded canvas (observed 1440x542 on the private111 path);
  * only the nested safeArea changes. The displayable3 sink remains 1440x455.
  *
- * index 0 = FULL  (370,72,700x378)   card profile: (300,72,840x378)
+ * index 0 = FULL  (370,72,700x378)   card profile: (300,88,840x362)
  * index 1 = SMALL (490,72,460x378)   every profile
  *
  * V3.5 preserves the V3.1/V3.2 horizontal OEM constraints while using the
- * vehicle-tuned vertical safe region top=72, bottom=450. Card profiles use the
- * Logo-tree layout (see alt_layout_rects).
+ * default vertical safe region top=72, bottom=450. Card profiles raise the
+ * FULL top inset to 88, keeping bottom=450 (see alt_layout_rects). All three
+ * card positions share index 0, so live showUI changes need no new viewArea.
  */
 static cf_obj make_cluster_layout_view_areas(uint32_t w, uint32_t h,
                                              int enable_two_areas) {
@@ -825,9 +823,9 @@ static cf_obj make_cluster_layout_view_areas(uint32_t w, uint32_t h,
 
     memset(&full, 0, sizeof(full));
     full.x = g.full_x;
-    full.y = 72u;
+    full.y = g.full_y;
     full.w = g.full_w;
-    full.h = 378u;
+    full.h = g.full_h;
     if (!full.h || !alt_safe_rect_valid(&full, w, h)) goto fail;
 
     v = rect_dict(w, h, 0u, 0u);
@@ -1005,8 +1003,8 @@ void *alt_build_cluster_display(void) {
         "initialViewArea=%d adjacent=%d predeclared_even_if_hmi_late=%d "
         "view=full:%ux%u safe_source=%u,%u,%ux%u "
         "safe_physical=%d,%d,%ux%u renderer_offset=%d,%d "
-        "safe_yh_mapping=vertical_inset_top72_bottom450 "
-        "safearea_revision=V35_OEM_X_VERTICAL_72_450 "
+        "safe_yh_mapping=default72_cardfull88_bottom450 "
+        "safearea_revision=V38FIX1_CARD_FULL_88_450 "
         "renderer_geometry_revision=V31_ONE_TO_ONE_CLIP "
         "map_plane_terminal_y=26 map_plane_terminal_y_policy=metadata_only_not_renderer_offset "
         "mode=%s layout=%s source=%s renderer_scale=0 "
@@ -1025,8 +1023,8 @@ void *alt_build_cluster_display(void) {
         cluster_safe.source);
     {
         struct alt_layout_rects g = alt_layout_rects();
-        altscreen_log("ALTAREA_CARD_LAYOUT profile=%s full=%u,72,%ux378 small=%u,72,%ux378 sport_small_pan=OEM_STAGE_DX",
-                      g.card ? "CARD_LOGO" : "DEFAULT_V35", g.full_x, g.full_w,
+        altscreen_log("ALTAREA_CARD_LAYOUT profile=%s full=%u,%u,%ux%u small=%u,72,%ux378 sport_small_pan=OEM_STAGE_DX",
+                      g.card ? "CARD_FULL_TOP88" : "DEFAULT_V35", g.full_x, g.full_y, g.full_w, g.full_h,
                       g.small_x, g.small_w);
     }
     altscreen_log("ALTINFO built type=%u %ux%u@%u uuid=%s features=0x%x input=%d fields=%u",

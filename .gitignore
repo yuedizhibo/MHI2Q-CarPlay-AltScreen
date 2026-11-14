@@ -23,6 +23,7 @@
 !/Toolbox/carplay_alt_screen/src/libcarplay_altscreen.map
 !/Toolbox/carplay_alt_screen/src/build_qnx_arm.sh
 !/Toolbox/carplay_alt_screen/src/tools/validate_qnx_load_layout.py
+!/Toolbox/carplay_alt_screen/src/tools/validate_card_safe_area.py
 
 # HMI production Java, compile-only API stubs and required Unicode resource.
 # The vendor baseline JAR contains classes whose source is not in this project.
